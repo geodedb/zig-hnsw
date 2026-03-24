@@ -2,15 +2,15 @@
 
 ## Overview
 
-A Zig library for hnsw
+A standalone Zig library for HNSW (Hierarchical Navigable Small World) approximate nearest-neighbor search.
 
-## Table of Contents
+## Documentation
 
-- [Getting Started](getting-started.md)
-- [API Reference](api-reference.md)
-- [Examples](examples.md)
-- [Architecture](architecture.md)
-- [FAQ](faq.md)
+- [Requirements](REQUIREMENTS.md) — Functional, packaging, and test requirements
+- [Gap Analysis](GAP_ANALYSIS.md) — Implementation status and boundary decisions
+- [Quality Gap Analysis](QUALITY_GAP_ANALYSIS.md) — Code quality findings
+- [Performance Gap Analysis](PERF_GAP_ANALYSIS.md) — Performance findings
+- [Security Gap Analysis](SECURITY_GAP_ANALYSIS.md) — Security findings
 
 ## Quick Links
 

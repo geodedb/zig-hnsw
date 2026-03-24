@@ -3,22 +3,27 @@
 
 //! # hnsw
 //!
-//! A Zig library for hnsw
+//! A standalone Zig library for Hierarchical Navigable Small World (HNSW)
+//! approximate nearest-neighbor search.
 //!
 //! ## Features
 //!
-//! - Feature 1
-//! - Feature 2
-//! - Feature 3
+//! - Generic HNSW index with configurable distance metrics
+//! - Euclidean, Cosine, Dot Product, and Manhattan distances
+//! - Allocator-backed lifecycle with no hidden allocations
+//! - Optional binary snapshot persistence
 //!
 //! ## Quick Start
 //!
 //! ```zig
 //! const hnsw = @import("hnsw");
 //!
-//! pub fn main() !void {
-//!     // Your code here
-//! }
+//! var index = try hnsw.Hnsw.init(allocator, 128, .euclidean, .{});
+//! defer index.deinit();
+//!
+//! try index.insert(1, &my_vector);
+//! const results = try index.knnSearch(&query, 10);
+//! defer allocator.free(results);
 //! ```
 //!
 //! ## License
@@ -27,54 +32,25 @@
 
 const std = @import("std");
 
-/// Library version
+/// Library version.
 pub const version = "0.1.0";
 
-// Re-export submodules here as the library grows:
-// pub const submodule = @import("submodule.zig");
+// Core modules
+pub const distance = @import("distance.zig");
+pub const hnsw = @import("hnsw.zig");
+pub const persist = @import("persist.zig");
+
+// Top-level re-exports for convenience
+pub const DistanceMetric = distance.DistanceMetric;
+pub const Hnsw = hnsw.Hnsw;
+pub const HnswError = hnsw.HnswError;
+pub const Config = hnsw.Config;
+pub const SearchResult = hnsw.SearchResult;
 
 // ============================================================================
-// Public Types
+// Unit Tests — ensure all submodule tests are discovered
 // ============================================================================
-
-/// Example configuration structure
-pub const Config = struct {
-    /// Enable debug output
-    debug: bool = false,
-    /// Maximum retry attempts
-    max_retries: u32 = 3,
-    /// Timeout in milliseconds
-    timeout_ms: u64 = 30_000,
-};
-
-// ============================================================================
-// Public Functions
-// ============================================================================
-
-/// Initialize the library with the given configuration.
-///
-/// Returns an error if the configuration is invalid.
-pub fn init(config: Config) !void {
-    _ = config;
-    // Implementation here
-}
-
-// ============================================================================
-// Unit Tests
-// ============================================================================
-
-test "Config default values" {
-    const config = Config{};
-    try std.testing.expectEqual(false, config.debug);
-    try std.testing.expectEqual(@as(u32, 3), config.max_retries);
-    try std.testing.expectEqual(@as(u64, 30_000), config.timeout_ms);
-}
-
-test "init with default config" {
-    try init(.{});
-}
 
 test {
-    // Ensure all declarations are referenced for test coverage
     std.testing.refAllDecls(@This());
 }
