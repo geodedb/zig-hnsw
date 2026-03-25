@@ -42,9 +42,28 @@ Items closed during gap-close on 2026-03-23.
 | Persistence boundary undecided | Persistence lives in-repo as `src/persist.zig`, opt-in by import |
 | Adapter surface mixed into indexes | No adapter types extracted; all Geode wrappers stay in Geode |
 
+## Security Gaps Resolved (gap-close 2026-03-25)
+
+| ID | Finding | Resolution |
+|---|---|---|
+| SEC-011 | CI does not test ReleaseFast/ReleaseSmall | CI pipeline now includes `test-release-fast`, `test-release-small`, `test-integration-release-safe`, and `test-integration-release-fast` jobs |
+| SEC-013 | No gitleaks pre-commit hook | Added `gitleaks/gitleaks` v8.24.0 pre-commit hook for defense-in-depth alongside CI gitleaks scanning |
+
+## Performance Gaps Resolved (gap-close 2026-03-25)
+
+| ID | Finding | Resolution |
+|---|---|---|
+| PERF-016 | No ReleaseFast CI test | CI pipeline now includes ReleaseFast, ReleaseSmall, and ReleaseSafe test jobs for both unit and integration tests |
+
 ## Deferred Items
 
 | Item | Reason |
 |---|---|
 | HNSW-PKG-001: Geode consumes this repo | Geode-side `build.zig` change; blocked on Geode team |
 | Extraction Plan step 5: Retarget Geode imports | Same as above |
+
+## Blocked Items
+
+| Item | Reason | Unblock Steps |
+|---|---|---|
+| Fuzz target missing `hnsw_lib` module dependency | Geode-side task; this repo has no control over Geode's build.zig | (1) Add `hnsw_lib` module dep in Geode's fuzz build step, or (2) Complete Extraction Plan Step 5 to consume this repo as a Zig package |

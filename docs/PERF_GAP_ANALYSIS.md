@@ -1,6 +1,6 @@
 # Performance Gap Analysis
 
-Last updated: 2026-03-23
+Last updated: 2026-03-25
 
 ## Findings
 
@@ -21,7 +21,7 @@ Last updated: 2026-03-23
 | 13 | PERF-013 | No bulk insert API | P2 | 10-20% | `src/hnsw.zig:132` | **Deferred** — API addition for v0.2.0 |
 | 14 | PERF-014 | Connection lists use separate allocations | P2 | moderate | `src/hnsw.zig:71` | **Deferred** — depends on SoA layout (PERF-002) |
 | 15 | PERF-015 | Tests only use tiny datasets | P2 | N/A | `tests/` | **Deferred** — requires benchmark harness (PERF-007) |
-| 16 | PERF-016 | No ReleaseFast CI test | P3 | N/A | `.gitlab-ci.yml` | **Deferred** — CI change |
+| 16 | PERF-016 | No ReleaseFast CI test | P3 | N/A | `.gitlab-ci.yml` | **Closed** — CI now includes `test-release-fast`, `test-release-small`, `test-integration-release-safe`, and `test-integration-release-fast` jobs |
 
 ## Summary
 
@@ -30,7 +30,7 @@ Last updated: 2026-03-23
 | P0 | 3 | 0 | 3 |
 | P1 | 5 | 0 | 5 |
 | P2 | 7 | 1 | 6 |
-| P3 | 1 | 0 | 1 |
-| **Total** | **16** | **1** | **15** |
+| P3 | 1 | 1 | 0 |
+| **Total** | **16** | **2** | **14** |
 
-All P0-P1 items are architectural optimizations appropriate for v0.2.0, not v0.1.0 correctness release. The single closed item (PERF-010) was a low-effort fix applied during the security hardening pass.
+All P0-P1 items are architectural optimizations appropriate for v0.2.0, not v0.1.0 correctness release. PERF-010 was a low-effort fix applied during the security hardening pass. PERF-016 was resolved when the CI pipeline was expanded to include ReleaseFast, ReleaseSmall, and ReleaseSafe test jobs.

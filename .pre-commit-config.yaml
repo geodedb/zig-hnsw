@@ -51,6 +51,12 @@ repos:
         args: [--autofix, --indent, "2"]
         exclude: ^\.gitlab-ci\.yml$
 
+  # Secret detection (defense-in-depth with CI gitleaks scanning)
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.0
+    hooks:
+      - id: gitleaks
+
   # Conventional commits
   - repo: https://github.com/commitizen-tools/commitizen
     rev: v4.1.0
@@ -95,4 +101,4 @@ ci:
   autofix_prs: true
   autofix_commit_msg: "[pre-commit.ci] auto fixes"
   autoupdate_schedule: weekly
-  skip: [zig-fmt, zig-build, zig-test]
+  skip: [zig-fmt, zig-build, zig-test, gitleaks]

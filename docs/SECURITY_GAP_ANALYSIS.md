@@ -1,6 +1,6 @@
 # Security Gap Analysis
 
-Last updated: 2026-03-23
+Last updated: 2026-03-25
 
 ## Findings
 
@@ -16,9 +16,9 @@ Last updated: 2026-03-23
 | 8 | SEC-008 | Node `level` not validated against `max_layers` | Medium | 48 | CWE-770 | `src/persist.zig:117` | **Closed** — validation added: `if (level >= max_layers) return error.InvalidNodeLevel` |
 | 9 | SEC-009 | CI components pinned to semver tags instead of commit SHAs | Medium | 45 | CWE-829 | `.gitlab-ci.yml` | **Won't Do** — first-party components from same org; semver pinning accepted |
 | 10 | SEC-010 | CODEOWNERS placeholder disables review gates | Medium | 40 | CWE-1188 | `CODEOWNERS:3` | **Closed** — replaced `@your-username` with `@benjiv` |
-| 11 | SEC-011 | CI does not test ReleaseFast/ReleaseSmall | Low | 35 | CWE-1127 | `.gitlab-ci.yml` | **Deferred** — CI change tracked separately |
+| 11 | SEC-011 | CI does not test ReleaseFast/ReleaseSmall | Low | 35 | CWE-1127 | `.gitlab-ci.yml` | **Closed** — CI now includes `test-release-fast`, `test-release-small`, `test-integration-release-safe`, and `test-integration-release-fast` jobs |
 | 12 | SEC-012 | Pre-commit hooks use version tags not commit SHAs | Low | 30 | CWE-829 | `.pre-commit-config.yaml` | **Won't Do** — standard practice; auto-update manages versions |
-| 13 | SEC-013 | No gitleaks pre-commit hook | Low | 25 | CWE-798 | `.pre-commit-config.yaml` | **Deferred** — CI catches secrets post-push; pre-commit is optional hardening |
+| 13 | SEC-013 | No gitleaks pre-commit hook | Low | 25 | CWE-798 | `.pre-commit-config.yaml` | **Closed** — added `gitleaks/gitleaks` v8.24.0 pre-commit hook for defense-in-depth alongside CI gitleaks scanning |
 | 14 | SEC-014 | Docker base image not pinned to digest | Low | 20 | CWE-829 | `.gitlab-ci.yml` | **Won't Do** — rolling security updates preferred for CI images |
 
 ## Summary
@@ -27,6 +27,6 @@ Last updated: 2026-03-23
 |-----------|-------|--------|----------|----------|
 | Critical | 2 | 2 | 0 | 0 |
 | High | 2 | 2 | 0 | 0 |
-| Medium | 6 | 4 | 1 | 0 |
-| Low | 4 | 1 | 2 | 2 |
-| **Total** | **14** | **9** | **3** | **2** |
+| Medium | 6 | 5 | 1 | 0 |
+| Low | 4 | 2 | 2 | 0 |
+| **Total** | **14** | **11** | **3** | **0** |

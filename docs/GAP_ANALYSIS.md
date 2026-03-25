@@ -1,6 +1,6 @@
 # GAP Analysis
 
-Last updated: 2026-03-25
+Last updated: 2026-03-25 (gap-close pass)
 
 Repository status: **core HNSW library implemented** with distance metrics, insertion, k-NN search, optional persistence, and comprehensive tests.
 
@@ -36,7 +36,7 @@ Keep in Geode:
 | Persistence boundary is still undecided | `src/index/hnsw_persist.zig:25`, `src/index/hnsw_persist.zig:78` | Affects public API and dependency surface | Decide whether persistence lives here, in a sibling package, or as a Geode adapter | **Closed** — persistence lives in this repo as `src/persist.zig`, explicitly opt-in per HNSW-PKG-002 |
 | Build seam exists only inside Geode today | `build.zig:1129`, `build.zig:1133`, `build.zig:1136` | Extraction path is obvious but not completed | Repoint Geode to depend on this repo instead of local module creation | **Deferred** — this repo builds independently; Geode repointing is a Geode-side task (HNSW-PKG-001) |
 | Adapter surface is mixed into higher-level indexes | `src/index/vector_index.zig`, `src/index/advanced_types_index.zig` | Easy to over-extract | Keep all product wrappers local | **Closed** — no Geode adapter types exist in this repo |
-| Fuzz target missing `hnsw_lib` module dependency | Geode's `fuzz/targets/hnsw_snapshot_fuzz.zig` build step provides `-Mhnsw=src/index/hnsw.zig` but does NOT supply the `hnsw_lib` module that Geode's `src/index/hnsw.zig:2` imports (`const hnsw_lib = @import("hnsw_lib")`). The standalone library lives at `~/src/gl/devnw/zig/hnsw` (separate repo, NOT a sibling of Geode) | Fuzz target fails to compile: `error: no module named 'hnsw_lib' available within module 'hnsw'`. Blocks 1/68 `test-e2e` build steps (all 64/64 actual test cases pass unaffected) | Add `hnsw_lib` as a module dependency in Geode's fuzz target build step pointing to `~/src/gl/devnw/zig/hnsw`, or complete Step 5 (repoint Geode to this library as a proper package dependency) so the module is resolved through the package system | **Open** — pre-existing since library extraction; unrelated to any REPL or transport fixes |
+| Fuzz target missing `hnsw_lib` module dependency | Geode's `fuzz/targets/hnsw_snapshot_fuzz.zig` build step provides `-Mhnsw=src/index/hnsw.zig` but does NOT supply the `hnsw_lib` module that Geode's `src/index/hnsw.zig:2` imports (`const hnsw_lib = @import("hnsw_lib")`). The standalone library lives at `~/src/gl/devnw/zig/hnsw` (separate repo, NOT a sibling of Geode) | Fuzz target fails to compile: `error: no module named 'hnsw_lib' available within module 'hnsw'`. Blocks 1/68 `test-e2e` build steps (all 64/64 actual test cases pass unaffected) | Add `hnsw_lib` as a module dependency in Geode's fuzz target build step pointing to `~/src/gl/devnw/zig/hnsw`, or complete Step 5 (repoint Geode to this library as a proper package dependency) so the module is resolved through the package system | **Blocked** — Geode-side task; unblock by either: (1) adding `hnsw_lib` module dep in Geode's fuzz build step, or (2) completing Extraction Plan Step 5 to consume this repo as a Zig package |
 
 ## Tests And Benchmarks To Carry Over
 

@@ -1,6 +1,6 @@
 # Quality Gap Analysis
 
-Last updated: 2026-03-23
+Last updated: 2026-03-25
 
 ## Findings
 
@@ -37,6 +37,6 @@ Last updated: 2026-03-23
 |----------|-------|--------|----------|
 | Critical | 2 | 2 | 0 |
 | High | 4 | 4 | 0 |
-| Medium | 8 | 7 | 2 (Q-011 by-design, Q-013 traceability) |
-| Low | 10 | 7 | 2 (Q-021 Zig visibility, Q-023 internal assert) |
+| Medium | 8 | 6 | 2 (Q-011 by-design, Q-013 traceability) |
+| Low | 10 | 8 | 2 (Q-021 Zig visibility, Q-023 internal assert) |
 | **Total** | **24** | **20** | **4** |
