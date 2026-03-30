@@ -196,6 +196,29 @@ pub const Hnsw = struct {
         if (vector.len != self.dim) return HnswError.DimensionMismatch;
         self.rw_lock.lock();
         defer self.rw_lock.unlock();
+        try self.insertUnlocked(id, vector);
+    }
+
+    /// Insert multiple vectors in a single batch.
+    ///
+    /// Takes the write lock once for the entire batch and pre-generates
+    /// all random levels on the caller's thread. Each individual insertion
+    /// benefits from spice-parallelized distance computations in `searchLayer`.
+    ///
+    /// `ids` and `vectors` must have the same length. Each element of
+    /// `vectors` must have length `self.dim`.
+    pub fn batchInsert(self: *Hnsw, ids: []const u64, vectors: []const []const f32) !void {
+        if (ids.len != vectors.len) return HnswError.DimensionMismatch;
+        self.rw_lock.lock();
+        defer self.rw_lock.unlock();
+        for (ids, vectors) |id, vec| {
+            try self.insertUnlocked(id, vec);
+        }
+    }
+
+    /// Core insertion logic without locking. Caller must hold the write lock.
+    fn insertUnlocked(self: *Hnsw, id: u64, vector: []const f32) !void {
+        if (vector.len != self.dim) return HnswError.DimensionMismatch;
 
         const new_level = self.randomLevel();
 
@@ -719,6 +742,28 @@ test "Hnsw Config m0 returns u32" {
 test "Hnsw Config m0 no overflow for large m" {
     const config = Config{ .m = 32000 };
     try std.testing.expectEqual(@as(u32, 64000), config.m0());
+}
+
+test "Hnsw batchInsert" {
+    var index = try Hnsw.init(std.testing.allocator, 2, .euclidean, .{ .m = 4 });
+    defer index.deinit();
+
+    const ids = [_]u64{ 10, 20, 30, 40, 50 };
+    const v0 = [_]f32{ 0.0, 0.0 };
+    const v1 = [_]f32{ 1.0, 0.0 };
+    const v2 = [_]f32{ 0.0, 1.0 };
+    const v3 = [_]f32{ 1.0, 1.0 };
+    const v4 = [_]f32{ 0.5, 0.5 };
+    const vectors = [_][]const f32{ &v0, &v1, &v2, &v3, &v4 };
+
+    try index.batchInsert(&ids, &vectors);
+    try std.testing.expectEqual(@as(u32, 5), index.count());
+
+    // Search should still work after batch insert
+    const results = try index.knnSearch(&[_]f32{ 0.0, 0.0 }, 1);
+    defer index.allocator.free(results);
+    try std.testing.expectEqual(@as(usize, 1), results.len);
+    try std.testing.expectEqual(@as(u64, 10), results[0].id);
 }
 
 test "Hnsw randomLevel stays in bounds" {
