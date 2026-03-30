@@ -1,6 +1,6 @@
 # GAP Analysis
 
-Last updated: 2026-03-25 (gap-close pass)
+Last updated: 2026-03-30 (spice parallelism integration)
 
 Repository status: **core HNSW library implemented** with distance metrics, insertion, k-NN search, optional persistence, and comprehensive tests.
 
@@ -38,6 +38,48 @@ Keep in Geode:
 | Adapter surface is mixed into higher-level indexes | `src/index/vector_index.zig`, `src/index/advanced_types_index.zig` | Easy to over-extract | Keep all product wrappers local | **Closed** — no Geode adapter types exist in this repo |
 | Fuzz target missing `hnsw_lib` module dependency | Geode's `fuzz/targets/hnsw_snapshot_fuzz.zig` build step provides `-Mhnsw=src/index/hnsw.zig` but does NOT supply the `hnsw_lib` module that Geode's `src/index/hnsw.zig:2` imports (`const hnsw_lib = @import("hnsw_lib")`). The standalone library lives at `~/src/gl/devnw/zig/hnsw` (separate repo, NOT a sibling of Geode) | Fuzz target fails to compile: `error: no module named 'hnsw_lib' available within module 'hnsw'`. Blocks 1/68 `test-e2e` build steps (all 64/64 actual test cases pass unaffected) | Add `hnsw_lib` as a module dependency in Geode's fuzz target build step pointing to `~/src/gl/devnw/zig/hnsw`, or complete Step 5 (repoint Geode to this library as a proper package dependency) so the module is resolved through the package system | **Blocked** — Geode-side task; unblock by either: (1) adding `hnsw_lib` module dep in Geode's fuzz build step, or (2) completing Extraction Plan Step 5 to consume this repo as a Zig package |
 
+## Parallelism & Concurrency Gaps
+
+Last updated: 2026-03-30 (spice integration pass)
+
+The HNSW index now uses the `spice` heartbeat-scheduling library for parallel distance computations, `std.Thread.Mutex` for PRNG safety, and `std.Thread.RwLock` for concurrent read/write access.
+
+### Current State
+
+- **`spice` dependency**: declared in `build.zig.zon` as a path dependency (`../spice`), wired into all build targets
+- **Thread pool**: heap-allocated `*spice.ThreadPool` on `Hnsw` struct, started at `init`, stopped at `deinit`
+- **RwLock**: `insert` acquires exclusive write lock; `knnSearch` acquires shared read lock
+- **Mutex-protected PRNG**: `randomLevel()` is guarded by `prng_mutex`
+- **Parallel distance computation**: `searchLayer` batches unvisited neighbors, computes distances via spice fork/join (recursive divide-and-conquer) for batches > 32
+- **Batch insert API**: `batchInsert(ids, vectors)` takes write lock once, inserts sequentially with spice-parallelized `searchLayer`
+
+### Parallelism Gaps
+
+| ID | Gap | Evidence | Impact | Required fix | Status |
+|---|---|---|---|---|---|
+| PAR-001 | `spice` dependency not declared | `build.zig.zon` | Cannot use `spice` fork/join anywhere | Add `spice` as a Zig package dependency | **Closed** — `build.zig.zon` declares `spice` path dep; `build.zig` wires module into all targets |
+| PAR-002 | No parallel kNN search at layer 0 | `src/hnsw.zig` `searchLayer` | Search throughput limited to single core | Parallelize distance computations with spice fork/join | **Closed** — `searchLayer` refactored into 3 phases: collect unvisited, batch compute distances via `computeDistancesBatch` (spice fork/join), update heaps |
+| PAR-003 | No parallel batch insert API | `src/hnsw.zig` `insert()` | Users must insert vectors sequentially | Add `batchInsert` method | **Closed** — `batchInsert(ids, vectors)` added; takes write lock once, each insert uses spice-parallelized `searchLayer` |
+| PAR-004 | PRNG prevents concurrent insert | `src/hnsw.zig` `prng` field | Data race on `self.prng` | Protect PRNG with mutex | **Closed** — `prng_mutex: std.Thread.Mutex` guards `randomLevel()`; also resolves PERF-008 |
+| PAR-005 | No concurrent read/write support | `src/hnsw.zig` | Concurrent `insert` + `knnSearch` is UB | Add RwLock | **Closed** — `rw_lock: std.Thread.RwLock`; `insert`/`batchInsert` take exclusive lock, `knnSearch` takes shared lock |
+| PAR-006 | Distance computations are scalar and sequential | `src/distance.zig` | No parallelism across multiple candidates | Batch via spice fork/join | **Closed** — `computeDistancesBatch` uses spice recursive fork/join for batches > 32; SIMD vectorization (PERF-001) remains deferred |
+| PAR-007 | Persistence I/O is synchronous | `src/persist.zig` | Save/load blocks calling thread | Async I/O or background save | **Deferred** — blocking I/O is acceptable for v0.1.0; async persistence deferred to v0.2.0+ |
+| PAR-008 | `searchLayer` visited set is not thread-safe | `src/hnsw.zig` `AutoHashMap` | Shared data structure under parallelism | Thread-safe visited set | **Closed** — visited set stays single-threaded; only the main thread modifies it. Forked spice workers compute pure distance values with no shared mutable state |
+
+### Architecture Notes
+
+`spice` uses heartbeat scheduling — a cooperative fork/join model where:
+- Every parallel function takes a `*spice.Task` parameter
+- `fork()` signals work that *can* run on another thread
+- `join()` either collects the parallel result or falls back to sequential execution
+- Overhead is sub-nanosecond when parallelism isn't triggered (heartbeat fires every ~100μs)
+
+Implementation approach in this library:
+- **`searchLayer`**: refactored into collect/compute/update phases. The compute phase calls `computeDistancesBatch` which recursively splits work, forking the right half and computing the left. Falls back to sequential for batches <= 32 elements
+- **`batchInsert`**: single write lock for entire batch; parallelism comes from spice-enabled `searchLayer` within each insertion
+- **`greedyClosest`**: remains sequential — each step depends on the previous best (inherently serial)
+- **`ThreadPool`**: heap-allocated to avoid pointer invalidation when `Hnsw` struct moves on the stack
+
 ## Tests And Benchmarks To Carry Over
 
 | Geode test / benchmark | Coverage provided | Status |
@@ -57,7 +99,7 @@ Initial public surface (all implemented):
 - `Config` — `src/hnsw.zig`
 - `SearchResult` — `src/hnsw.zig`
 - `Node` — `src/hnsw.zig`
-- `init` / `deinit` / `insert` / `knnSearch` / `count` — methods on `Hnsw`
+- `init` / `deinit` / `insert` / `batchInsert` / `knnSearch` / `count` — methods on `Hnsw`
 - `persist.save` / `persist.load` — optional snapshot helpers in `src/persist.zig`
 
 ## Extraction Plan
