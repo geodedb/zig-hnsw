@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "timestamp": "2026-03-30T16:45:13Z",
+  "git_commit": "unknown",
+  "system": { "os": "linux", "arch": "x86_64" },
+  "dim": 128,
+  "tiers": [
+    {
+      "name": "1K",
+      "vector_count": 1000,
+      "insert_ops_sec": 541,
+      "search_avg_ns": 175465,
+      "search_k50_avg_ns": 238923,
+      "search_ef200_avg_ns": 325811,
+      "recall_at_10": 0.9920,
+      "save_ms": 0.8,
+      "load_ms": 58.6,
+      "batch_insert_ops_sec": 293
+    },
+    {
+      "name": "10K",
+      "vector_count": 10000,
+      "insert_ops_sec": 387,
+      "search_avg_ns": 514514,
+      "search_k50_avg_ns": 836838,
+      "search_ef200_avg_ns": 1625629,
+      "recall_at_10": 0.9060,
+      "save_ms": 7.9,
+      "load_ms": 333.4,
+      "batch_insert_ops_sec": 359
+    }
+  ]
+}

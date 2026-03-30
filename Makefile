@@ -5,6 +5,7 @@
 .PHONY: all build test test-unit test-integration clean check fmt help dev ci
 .PHONY: test-release-safe test-release-fast test-release-small test-all-optimizations
 .PHONY: pre-commit-install pre-commit pre-commit-run
+.PHONY: bench scale-bench bench-save bench-compare bench-baseline
 
 # Default target: build and run tests
 all: build test-unit
@@ -68,6 +69,30 @@ test-release-small:
 test-all-optimizations: test-unit test-release-safe test-release-fast test-release-small
 	@echo "✅ All optimization levels passed"
 
+# Performance benchmarks
+bench:
+	@echo "Running benchmarks..."
+	@zig build bench
+
+scale-bench:
+	@echo "Running incremental scale benchmark..."
+	@zig build scale-bench 2>/dev/null
+
+bench-save:
+	@echo "Running scale benchmark and saving results..."
+	@zig build scale-bench 2>/dev/null > benchmarks/results/$$(git rev-parse --short HEAD).json
+	@echo "Saved to benchmarks/results/$$(git rev-parse --short HEAD).json"
+
+bench-compare:
+	@echo "Running scale benchmark and comparing against baseline..."
+	@zig build scale-bench 2>/dev/null > /tmp/hnsw-current-bench.json
+	@zig build compare-bench -- benchmarks/results/baseline.json /tmp/hnsw-current-bench.json
+
+bench-baseline:
+	@echo "Running scale benchmark and saving as baseline..."
+	@zig build scale-bench 2>/dev/null > benchmarks/results/baseline.json
+	@echo "Saved to benchmarks/results/baseline.json"
+
 # Pre-commit hook management
 pre-commit-install:
 	@echo "📦 Installing pre-commit hooks..."
@@ -107,6 +132,13 @@ help:
 	@echo "  check                Check for compilation errors"
 	@echo "  pre-commit           Run pre-commit hooks"
 	@echo "  pre-commit-install   Install pre-commit hooks"
+	@echo ""
+	@echo "Benchmarks:"
+	@echo "  bench                Run performance benchmarks"
+	@echo "  scale-bench          Run incremental scale benchmark"
+	@echo "  bench-save           Run scale bench and save results"
+	@echo "  bench-baseline       Save current results as baseline"
+	@echo "  bench-compare        Compare current against baseline"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  clean                Remove build artifacts"
