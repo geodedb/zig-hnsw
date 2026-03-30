@@ -13,6 +13,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const dist = @import("distance.zig");
+const spice = @import("spice");
 
 pub const DistanceMetric = dist.DistanceMetric;
 
@@ -110,9 +111,9 @@ pub const Node = struct {
 /// provided allocator, which must outlive the index. Results from
 /// `knnSearch` must be freed with the same allocator.
 ///
-/// The index is single-threaded: concurrent `insert` calls are unsafe,
-/// and concurrent `insert` + `knnSearch` is unsafe. Multiple concurrent
-/// `knnSearch` calls on a frozen index are safe.
+/// Thread safety: concurrent `knnSearch` calls on a frozen index are safe.
+/// Concurrent `insert` and `knnSearch` are protected by an internal `RwLock`.
+/// The index uses `spice` for parallel distance computations.
 pub const Hnsw = struct {
     /// The allocator used for all owned memory. Results from `knnSearch`
     /// must be freed with this same allocator.
@@ -123,9 +124,20 @@ pub const Hnsw = struct {
     nodes: std.ArrayListUnmanaged(Node),
     entry_point: ?u32,
     max_level: u8,
+    /// Mutex-protected PRNG for thread-safe level generation.
+    /// Level generation is always done on the caller's thread before
+    /// any forked work, but the mutex ensures safety for concurrent
+    /// insert calls.
+    prng_mutex: std.Thread.Mutex,
     prng: std.Random.DefaultPrng,
     /// Level multiplier: 1/ln(M), per Malkov & Yashunin (2018) Section 4.
     level_mult: f64,
+    /// Read-write lock: knnSearch acquires shared, insert acquires exclusive.
+    rw_lock: std.Thread.RwLock,
+    /// Spice thread pool for parallel distance computations (heap-allocated
+    /// because ThreadPool must not move after start — background threads
+    /// hold pointers into it).
+    pool: *spice.ThreadPool,
 
     /// Create a new empty HNSW index.
     ///
@@ -135,6 +147,9 @@ pub const Hnsw = struct {
         if (dim == 0 or dim > 65536) return HnswError.InvalidDimension;
         try config.validate();
         const m: f64 = @floatFromInt(config.m);
+        const pool = try allocator.create(spice.ThreadPool);
+        pool.* = spice.ThreadPool.init(allocator);
+        pool.start(.{});
         return .{
             .allocator = allocator,
             .dim = dim,
@@ -143,13 +158,18 @@ pub const Hnsw = struct {
             .nodes = .{},
             .entry_point = null,
             .max_level = 0,
+            .prng_mutex = .{},
             .prng = std.Random.DefaultPrng.init(config.seed),
             .level_mult = 1.0 / @log(m),
+            .rw_lock = .{},
+            .pool = pool,
         };
     }
 
     /// Free all memory owned by the index.
     pub fn deinit(self: *Hnsw) void {
+        self.pool.deinit();
+        self.allocator.destroy(self.pool);
         for (self.nodes.items) |*node| {
             node.deinit(self.allocator);
         }
@@ -169,8 +189,13 @@ pub const Hnsw = struct {
     /// If an error occurs during graph construction (OOM), the node may
     /// be partially connected. The index remains safe to use and `deinit`
     /// will free all memory, but search quality may be degraded.
+    ///
+    /// Thread safety: acquires an exclusive write lock. Concurrent
+    /// `knnSearch` calls will block until insertion completes.
     pub fn insert(self: *Hnsw, id: u64, vector: []const f32) !void {
         if (vector.len != self.dim) return HnswError.DimensionMismatch;
+        self.rw_lock.lock();
+        defer self.rw_lock.unlock();
 
         const new_level = self.randomLevel();
 
@@ -263,8 +288,17 @@ pub const Hnsw = struct {
     /// Returns a caller-owned slice of `SearchResult` sorted by ascending distance.
     /// Free the returned slice with `self.allocator.free(results)`.
     /// Returns `DimensionMismatch` if `query.len != self.dim`.
+    ///
+    /// Thread safety: acquires a shared read lock. Multiple concurrent
+    /// `knnSearch` calls may proceed in parallel; they will block only
+    /// while an `insert` is in progress.
     pub fn knnSearch(self: *const Hnsw, query: []const f32, k: u32) ![]SearchResult {
         if (query.len != self.dim) return HnswError.DimensionMismatch;
+        // Cast away const for RwLock (the lock protects structural mutation,
+        // knnSearch only reads).
+        const mutable_self: *Hnsw = @constCast(self);
+        mutable_self.rw_lock.lockShared();
+        defer mutable_self.rw_lock.unlockShared();
 
         if (self.entry_point == null or k == 0) {
             return &[_]SearchResult{};
@@ -306,6 +340,8 @@ pub const Hnsw = struct {
     // ========================================================================
 
     fn randomLevel(self: *Hnsw) u8 {
+        self.prng_mutex.lock();
+        defer self.prng_mutex.unlock();
         const random = self.prng.random();
         const r = random.float(f64);
         const clamped = @max(r, std.math.floatEps(f64));
