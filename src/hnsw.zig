@@ -384,7 +384,66 @@ pub const Hnsw = struct {
         }
     }
 
+    /// Minimum batch size before spice fork/join kicks in. Below this
+    /// threshold the overhead of scheduling outweighs the parallelism gain.
+    const parallel_distance_threshold: usize = 32;
+
+    /// Arguments for the parallel distance computation function.
+    const DistBatchArgs = struct {
+        indices: []const u32,
+        distances: []f32,
+        vectors: []const Node,
+        query: []const f32,
+        metric: DistanceMetric,
+    };
+
+    /// Compute distances for a batch of node indices in parallel using
+    /// spice fork/join. Splits the work recursively; when the batch is
+    /// small enough it falls back to sequential computation.
+    fn computeDistancesBatch(t: *spice.Task, args: DistBatchArgs) void {
+        const n = args.indices.len;
+        if (n == 0) return;
+
+        if (n <= parallel_distance_threshold) {
+            // Sequential fallback for small batches.
+            for (args.indices, args.distances) |idx, *d| {
+                d.* = dist.compute(args.metric, args.query, args.vectors[idx].vector);
+            }
+            return;
+        }
+
+        // Split in half and fork the right half to a background worker.
+        const mid = n / 2;
+        var fut = spice.Future(DistBatchArgs, void).init();
+        const right_args = DistBatchArgs{
+            .indices = args.indices[mid..],
+            .distances = args.distances[mid..],
+            .vectors = args.vectors,
+            .query = args.query,
+            .metric = args.metric,
+        };
+        fut.fork(t, computeDistancesBatch, right_args);
+
+        // Compute the left half ourselves.
+        const left_args = DistBatchArgs{
+            .indices = args.indices[0..mid],
+            .distances = args.distances[0..mid],
+            .vectors = args.vectors,
+            .query = args.query,
+            .metric = args.metric,
+        };
+        t.call(void, computeDistancesBatch, left_args);
+
+        // Join the right half — if no worker picked it up, do it ourselves.
+        if (fut.join(t) == null) {
+            t.call(void, computeDistancesBatch, right_args);
+        }
+    }
+
     /// Beam search at a given layer. Returns candidates sorted by distance ascending.
+    ///
+    /// Distance computations for neighbor candidates are parallelized via
+    /// spice fork/join when the batch exceeds `parallel_distance_threshold`.
     fn searchLayer(
         self: *const Hnsw,
         temp: Allocator,
@@ -410,17 +469,57 @@ pub const Hnsw = struct {
             try results.add(c);
         }
 
+        // Temporary buffers for batch distance computation.
+        // Sized to the maximum possible neighbors per iteration (m0).
+        const max_neighbors: usize = self.config.m0();
+        var unvisited_buf = try temp.alloc(u32, max_neighbors);
+        var dist_buf = try temp.alloc(f32, max_neighbors);
+
+        // Cast away const for pool access (pool is structurally immutable
+        // during search — only the internal spice state changes).
+        const mutable_self: *Hnsw = @constCast(self);
+
         while (candidates.count() > 0) {
             const nearest = candidates.remove();
             const farthest = results.peek() orelse break;
 
             if (nearest.dist > farthest.dist) break;
 
-            for (self.getConnections(nearest.index, layer)) |neighbor| {
-                if (visited.contains(neighbor)) continue;
-                try visited.put(neighbor, {});
+            // Phase 1: Collect unvisited neighbors.
+            const connections = self.getConnections(nearest.index, layer);
+            var unvisited_count: usize = 0;
+            for (connections) |neighbor| {
+                if (!visited.contains(neighbor)) {
+                    try visited.put(neighbor, {});
+                    if (unvisited_count < unvisited_buf.len) {
+                        unvisited_buf[unvisited_count] = neighbor;
+                        unvisited_count += 1;
+                    }
+                }
+            }
 
-                const d = dist.compute(self.metric, query, self.nodes.items[neighbor].vector);
+            if (unvisited_count == 0) continue;
+
+            const unvisited = unvisited_buf[0..unvisited_count];
+            const distances = dist_buf[0..unvisited_count];
+
+            // Phase 2: Compute distances — parallel via spice for large batches.
+            if (unvisited_count > parallel_distance_threshold) {
+                mutable_self.pool.call(void, computeDistancesBatch, DistBatchArgs{
+                    .indices = unvisited,
+                    .distances = distances,
+                    .vectors = self.nodes.items,
+                    .query = query,
+                    .metric = self.metric,
+                });
+            } else {
+                for (unvisited, distances) |idx, *d| {
+                    d.* = dist.compute(self.metric, query, self.nodes.items[idx].vector);
+                }
+            }
+
+            // Phase 3: Update heaps sequentially.
+            for (unvisited, distances) |neighbor, d| {
                 const far = results.peek() orelse continue;
 
                 if (d < far.dist or results.count() < ef) {
