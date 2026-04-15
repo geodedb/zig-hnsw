@@ -158,10 +158,10 @@ pub const Hnsw = struct {
             .nodes = .{},
             .entry_point = null,
             .max_level = 0,
-            .prng_mutex = .{},
+            .prng_mutex = std.Io.Mutex.init,
             .prng = std.Random.DefaultPrng.init(config.seed),
             .level_mult = 1.0 / @log(m),
-            .rw_lock = .{},
+            .rw_lock = std.Io.RwLock.init,
             .pool = pool,
         };
     }
@@ -194,8 +194,8 @@ pub const Hnsw = struct {
     /// `knnSearch` calls will block until insertion completes.
     pub fn insert(self: *Hnsw, id: u64, vector: []const f32) !void {
         if (vector.len != self.dim) return HnswError.DimensionMismatch;
-        self.rw_lock.lock();
-        defer self.rw_lock.unlock();
+        self.rw_lock.lockUncancelable(std.Io.Threaded.global_single_threaded.io());
+        defer self.rw_lock.unlock(std.Io.Threaded.global_single_threaded.io());
         try self.insertUnlocked(id, vector);
     }
 
@@ -209,8 +209,8 @@ pub const Hnsw = struct {
     /// `vectors` must have length `self.dim`.
     pub fn batchInsert(self: *Hnsw, ids: []const u64, vectors: []const []const f32) !void {
         if (ids.len != vectors.len) return HnswError.DimensionMismatch;
-        self.rw_lock.lock();
-        defer self.rw_lock.unlock();
+        self.rw_lock.lockUncancelable(std.Io.Threaded.global_single_threaded.io());
+        defer self.rw_lock.unlock(std.Io.Threaded.global_single_threaded.io());
         for (ids, vectors) |id, vec| {
             try self.insertUnlocked(id, vec);
         }
@@ -320,8 +320,8 @@ pub const Hnsw = struct {
         // Cast away const for RwLock (the lock protects structural mutation,
         // knnSearch only reads).
         const mutable_self: *Hnsw = @constCast(self);
-        mutable_self.rw_lock.lockShared();
-        defer mutable_self.rw_lock.unlockShared();
+        mutable_self.rw_lock.lockSharedUncancelable(std.Io.Threaded.global_single_threaded.io());
+        defer mutable_self.rw_lock.unlockShared(std.Io.Threaded.global_single_threaded.io());
 
         if (self.entry_point == null or k == 0) {
             return &[_]SearchResult{};
@@ -363,8 +363,8 @@ pub const Hnsw = struct {
     // ========================================================================
 
     fn randomLevel(self: *Hnsw) u8 {
-        self.prng_mutex.lock();
-        defer self.prng_mutex.unlock();
+        self.prng_mutex.lockUncancelable(std.Io.Threaded.global_single_threaded.io());
+        defer self.prng_mutex.unlock(std.Io.Threaded.global_single_threaded.io());
         const random = self.prng.random();
         const r = random.float(f64);
         const clamped = @max(r, std.math.floatEps(f64));
