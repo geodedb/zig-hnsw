@@ -36,7 +36,7 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const spice = @import("spice");
+const tp = @import("thread_pool");
 const hnsw_mod = @import("hnsw.zig");
 const Hnsw = hnsw_mod.Hnsw;
 const Config = hnsw_mod.Config;
@@ -173,9 +173,9 @@ pub fn load(allocator: Allocator, reader: anytype) !Hnsw {
     }
 
     const m_float: f64 = @floatFromInt(config.m);
-    const pool = try allocator.create(spice.ThreadPool);
-    pool.* = spice.ThreadPool.init(allocator);
-    pool.start(.{});
+    const pool = try allocator.create(tp.ThreadPool);
+    errdefer allocator.destroy(pool);
+    pool.* = try tp.ThreadPool.init(allocator, .{});
     return Hnsw{
         .allocator = allocator,
         .dim = dim,

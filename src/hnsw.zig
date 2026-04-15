@@ -13,7 +13,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const dist = @import("distance.zig");
-const spice = @import("spice");
+const tp = @import("thread_pool");
 
 pub const DistanceMetric = dist.DistanceMetric;
 
@@ -113,7 +113,7 @@ pub const Node = struct {
 ///
 /// Thread safety: concurrent `knnSearch` calls on a frozen index are safe.
 /// Concurrent `insert` and `knnSearch` are protected by an internal `RwLock`.
-/// The index uses `spice` for parallel distance computations.
+/// The index uses `thread_pool` for parallel distance computations.
 pub const Hnsw = struct {
     /// The allocator used for all owned memory. Results from `knnSearch`
     /// must be freed with this same allocator.
@@ -134,10 +134,10 @@ pub const Hnsw = struct {
     level_mult: f64,
     /// Read-write lock: knnSearch acquires shared, insert acquires exclusive.
     rw_lock: std.Io.RwLock,
-    /// Spice thread pool for parallel distance computations (heap-allocated
-    /// because ThreadPool must not move after start — background threads
+    /// Thread pool for parallel distance computations (heap-allocated
+    /// because ThreadPool must not move after init — background threads
     /// hold pointers into it).
-    pool: *spice.ThreadPool,
+    pool: *tp.ThreadPool,
 
     /// Create a new empty HNSW index.
     ///
@@ -147,9 +147,9 @@ pub const Hnsw = struct {
         if (dim == 0 or dim > 65536) return HnswError.InvalidDimension;
         try config.validate();
         const m: f64 = @floatFromInt(config.m);
-        const pool = try allocator.create(spice.ThreadPool);
-        pool.* = spice.ThreadPool.init(allocator);
-        pool.start(.{});
+        const pool = try allocator.create(tp.ThreadPool);
+        errdefer allocator.destroy(pool);
+        pool.* = try tp.ThreadPool.init(allocator, .{});
         return .{
             .allocator = allocator,
             .dim = dim,
@@ -407,59 +407,29 @@ pub const Hnsw = struct {
         }
     }
 
-    /// Minimum batch size before spice fork/join kicks in. Below this
+    /// Minimum batch size before parallel dispatch kicks in. Below this
     /// threshold the overhead of scheduling outweighs the parallelism gain.
     const parallel_distance_threshold: usize = 32;
 
-    /// Arguments for the parallel distance computation function.
-    const DistBatchArgs = struct {
+    /// Maximum number of chunks to split a distance batch into.
+    const MAX_CHUNKS: usize = 64;
+
+    /// Arguments for a single chunk of parallel distance computation.
+    const DistChunkCtx = struct {
         indices: []const u32,
         distances: []f32,
         vectors: []const Node,
         query: []const f32,
         metric: DistanceMetric,
+        wg: *tp.WaitGroup,
     };
 
-    /// Compute distances for a batch of node indices in parallel using
-    /// spice fork/join. Splits the work recursively; when the batch is
-    /// small enough it falls back to sequential computation.
-    fn computeDistancesBatch(t: *spice.Task, args: DistBatchArgs) void {
-        const n = args.indices.len;
-        if (n == 0) return;
-
-        if (n <= parallel_distance_threshold) {
-            // Sequential fallback for small batches.
-            for (args.indices, args.distances) |idx, *d| {
-                d.* = dist.compute(args.metric, args.query, args.vectors[idx].vector);
-            }
-            return;
-        }
-
-        // Split in half and fork the right half to a background worker.
-        const mid = n / 2;
-        var fut = spice.Future(DistBatchArgs, void).init();
-        const right_args = DistBatchArgs{
-            .indices = args.indices[mid..],
-            .distances = args.distances[mid..],
-            .vectors = args.vectors,
-            .query = args.query,
-            .metric = args.metric,
-        };
-        fut.fork(t, computeDistancesBatch, right_args);
-
-        // Compute the left half ourselves.
-        const left_args = DistBatchArgs{
-            .indices = args.indices[0..mid],
-            .distances = args.distances[0..mid],
-            .vectors = args.vectors,
-            .query = args.query,
-            .metric = args.metric,
-        };
-        t.call(void, computeDistancesBatch, left_args);
-
-        // Join the right half — if no worker picked it up, do it ourselves.
-        if (fut.join(t) == null) {
-            t.call(void, computeDistancesBatch, right_args);
+    /// Task function for a single distance-computation chunk.
+    fn distChunkTask(raw_ctx: *anyopaque, _: *tp.TaskContext) void {
+        const ctx: *DistChunkCtx = @ptrCast(@alignCast(raw_ctx));
+        defer ctx.wg.done();
+        for (ctx.indices, ctx.distances) |idx, *d| {
+            d.* = dist.compute(ctx.metric, ctx.query, ctx.vectors[idx].vector);
         }
     }
 
@@ -499,7 +469,7 @@ pub const Hnsw = struct {
         var dist_buf = try temp.alloc(f32, max_neighbors);
 
         // Cast away const for pool access (pool is structurally immutable
-        // during search — only the internal spice state changes).
+        // during search — only internal thread-pool state changes).
         const mutable_self: *Hnsw = @constCast(self);
 
         while (candidates.count() > 0) {
@@ -526,15 +496,46 @@ pub const Hnsw = struct {
             const unvisited = unvisited_buf[0..unvisited_count];
             const distances = dist_buf[0..unvisited_count];
 
-            // Phase 2: Compute distances — parallel via spice for large batches.
+            // Phase 2: Compute distances — parallel via thread_pool for large batches.
             if (unvisited_count > parallel_distance_threshold) {
-                mutable_self.pool.call(void, computeDistancesBatch, DistBatchArgs{
-                    .indices = unvisited,
-                    .distances = distances,
-                    .vectors = self.nodes.items,
-                    .query = query,
-                    .metric = self.metric,
-                });
+                // Chunk the work into at most MAX_CHUNKS slices and submit as a batch.
+                const n_chunks = @min(unvisited_count, MAX_CHUNKS);
+                const chunk_size = (unvisited_count + n_chunks - 1) / n_chunks;
+
+                var chunk_ctxs: [MAX_CHUNKS]DistChunkCtx = undefined;
+                var batch_tasks: [MAX_CHUNKS]tp.BatchTask = undefined;
+                var wg = mutable_self.pool.waitGroup();
+                wg.add(@intCast(n_chunks));
+
+                for (0..n_chunks) |i| {
+                    const start = i * chunk_size;
+                    const end = @min(start + chunk_size, unvisited_count);
+                    chunk_ctxs[i] = .{
+                        .indices = unvisited[start..end],
+                        .distances = distances[start..end],
+                        .vectors = self.nodes.items,
+                        .query = query,
+                        .metric = self.metric,
+                        .wg = &wg,
+                    };
+                    batch_tasks[i] = .{
+                        .task_fn = distChunkTask,
+                        .ctx = @ptrCast(&chunk_ctxs[i]),
+                    };
+                }
+
+                _ = mutable_self.pool.submitBatch(batch_tasks[0..n_chunks], .{ .wait_group = &wg }) catch {
+                    // Fallback: process sequentially if submit fails.
+                    // We still need to call done() for each chunk we did NOT submit.
+                    // Easiest: just drain sequentially and release all wg counts.
+                    for (0..n_chunks) |i| {
+                        for (chunk_ctxs[i].indices, chunk_ctxs[i].distances) |idx, *d| {
+                            d.* = dist.compute(self.metric, query, self.nodes.items[idx].vector);
+                        }
+                        wg.done();
+                    }
+                };
+                wg.wait();
             } else {
                 for (unvisited, distances) |idx, *d| {
                     d.* = dist.compute(self.metric, query, self.nodes.items[idx].vector);

@@ -7,12 +7,12 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // Spice parallelism dependency
-    const spice_dep = b.dependency("spice", .{
+    // Thread pool parallelism dependency
+    const thread_pool_dep = b.dependency("thread_pool", .{
         .target = target,
         .optimize = optimize,
     });
-    const spice_module = spice_dep.module("spice");
+    const thread_pool_module = thread_pool_dep.module("thread_pool");
 
     // Main library module
     const module = b.addModule("hnsw", .{
@@ -20,7 +20,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .imports = &.{
-            .{ .name = "spice", .module = spice_module },
+            .{ .name = "thread_pool", .module = thread_pool_module },
         },
     });
 
@@ -32,7 +32,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .imports = &.{
-                .{ .name = "spice", .module = spice_module },
+                .{ .name = "thread_pool", .module = thread_pool_module },
             },
         }),
     });
@@ -48,7 +48,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "hnsw", .module = module },
-                .{ .name = "spice", .module = spice_module },
+                .{ .name = "thread_pool", .module = thread_pool_module },
             },
         }),
     });
@@ -79,7 +79,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .imports = &.{
-                .{ .name = "spice", .module = spice_module },
+                .{ .name = "thread_pool", .module = thread_pool_module },
             },
         }),
     });
