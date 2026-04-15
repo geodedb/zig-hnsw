@@ -128,12 +128,12 @@ pub const Hnsw = struct {
     /// Level generation is always done on the caller's thread before
     /// any forked work, but the mutex ensures safety for concurrent
     /// insert calls.
-    prng_mutex: std.Thread.Mutex,
+    prng_mutex: std.Io.Mutex,
     prng: std.Random.DefaultPrng,
     /// Level multiplier: 1/ln(M), per Malkov & Yashunin (2018) Section 4.
     level_mult: f64,
     /// Read-write lock: knnSearch acquires shared, insert acquires exclusive.
-    rw_lock: std.Thread.RwLock,
+    rw_lock: std.Io.RwLock,
     /// Spice thread pool for parallel distance computations (heap-allocated
     /// because ThreadPool must not move after start — background threads
     /// hold pointers into it).
