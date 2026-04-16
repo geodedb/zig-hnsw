@@ -476,8 +476,8 @@ pub const Hnsw = struct {
         layer: u8,
     ) ![]Candidate {
         var visited = std.AutoHashMap(u32, void).init(temp);
-        var candidates = MinHeap.init(temp, {});
-        var results = MaxHeap.init(temp, {});
+        var candidates = MinHeap.initContext({});
+        var results = MaxHeap.initContext({});
 
         // Pre-allocate heaps with known ef capacity
         try candidates.ensureTotalCapacity(ef);
