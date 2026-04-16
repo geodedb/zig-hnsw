@@ -488,8 +488,8 @@ pub const Hnsw = struct {
             try visited.put(ep, {});
             const d = dist.compute(self.metric, query, self.nodes.items[ep].vector);
             const c = Candidate{ .index = ep, .dist = d };
-            try candidates.add(c);
-            try results.add(c);
+            try candidates.push(temp, c);
+            try results.push(temp, c);
         }
 
         // Temporary buffers for batch distance computation.
@@ -547,8 +547,8 @@ pub const Hnsw = struct {
 
                 if (d < far.dist or results.count() < ef) {
                     const c = Candidate{ .index = neighbor, .dist = d };
-                    try candidates.add(c);
-                    try results.add(c);
+                    try candidates.push(temp, c);
+                    try results.push(temp, c);
 
                     if (results.count() > ef) {
                         _ = results.remove();
