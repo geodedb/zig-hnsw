@@ -43,6 +43,9 @@ const Config = hnsw_mod.Config;
 const Node = hnsw_mod.Node;
 const DistanceMetric = hnsw_mod.DistanceMetric;
 
+const Writer = std.Io.Writer;
+const Reader = std.Io.Reader;
+
 const MAGIC = [4]u8{ 'H', 'N', 'S', 'W' };
 const FORMAT_VERSION: u32 = 1;
 
@@ -66,7 +69,7 @@ pub const PersistError = error{
 };
 
 /// Serialize an HNSW index to the given writer.
-pub fn save(index: *const Hnsw, writer: anytype) !void {
+pub fn save(index: *const Hnsw, writer: *Writer) !void {
     // Header
     try writer.writeAll(&MAGIC);
     try writeU32(writer, FORMAT_VERSION);
@@ -101,6 +104,7 @@ pub fn save(index: *const Hnsw, writer: anytype) !void {
             }
         }
     }
+    try writer.flush();
 }
 
 /// Deserialize an HNSW index from the given reader.
@@ -108,11 +112,10 @@ pub fn save(index: *const Hnsw, writer: anytype) !void {
 /// The returned index owns all its memory through the provided allocator.
 /// Validates all indices, dimensions, and configuration to reject
 /// malformed or malicious snapshot files.
-pub fn load(allocator: Allocator, reader: anytype) !Hnsw {
+pub fn load(allocator: Allocator, reader: *Reader) !Hnsw {
     // Header
-    var magic_buf: [4]u8 = undefined;
-    try reader.readNoEof(&magic_buf);
-    if (!std.mem.eql(u8, &magic_buf, &MAGIC)) return PersistError.InvalidMagic;
+    const magic_buf = try reader.takeArray(4);
+    if (!std.mem.eql(u8, magic_buf, &MAGIC)) return PersistError.InvalidMagic;
 
     const version = try readU32(reader);
     if (version != FORMAT_VERSION) return PersistError.UnsupportedVersion;
@@ -120,13 +123,13 @@ pub fn load(allocator: Allocator, reader: anytype) !Hnsw {
     const dim = try readU32(reader);
     if (dim == 0 or dim > MAX_DIM) return PersistError.InvalidDimension;
 
-    const metric_byte = try reader.readByte();
-    const metric = std.meta.intToEnum(DistanceMetric, metric_byte) catch return PersistError.InvalidMetric;
+    const metric_byte = try reader.takeByte();
+    const metric = std.enums.fromInt(DistanceMetric, metric_byte) orelse return PersistError.InvalidMetric;
 
     const m = try readU16(reader);
     const ef_construction = try readU16(reader);
     const ef_search = try readU16(reader);
-    const max_layers = try reader.readByte();
+    const max_layers = try reader.takeByte();
     const seed = try readU64(reader);
 
     // Validate config parameters
@@ -154,11 +157,11 @@ pub fn load(allocator: Allocator, reader: anytype) !Hnsw {
         if (ep >= node_count) return PersistError.InvalidEntryPoint;
     }
 
-    const max_level = try reader.readByte();
+    const max_level = try reader.takeByte();
     if (node_count > 0 and max_level >= max_layers) return PersistError.InvalidMaxLevel;
 
     // Nodes
-    var nodes: std.ArrayListUnmanaged(Node) = .{};
+    var nodes: std.ArrayListUnmanaged(Node) = .empty;
     errdefer {
         for (nodes.items) |*node| {
             node.deinit(allocator);
@@ -184,10 +187,10 @@ pub fn load(allocator: Allocator, reader: anytype) !Hnsw {
         .nodes = nodes,
         .entry_point = entry_point,
         .max_level = max_level,
-        .prng_mutex = .{},
+        .prng_mutex = std.Io.Mutex.init,
         .prng = std.Random.DefaultPrng.init(seed),
         .level_mult = 1.0 / @log(m_float),
-        .rw_lock = .{},
+        .rw_lock = std.Io.RwLock.init,
         .pool = pool,
     };
 }
@@ -197,14 +200,15 @@ pub fn load(allocator: Allocator, reader: anytype) !Hnsw {
 // ============================================================================
 
 /// Read and validate a single node from the binary stream.
-fn loadNode(allocator: Allocator, reader: anytype, dim: u32, max_layers: u8, node_count: u32) !Node {
+fn loadNode(allocator: Allocator, reader: *Reader, dim: u32, max_layers: u8, node_count: u32) !Node {
     const id = try readU64(reader);
-    const level = try reader.readByte();
+    const level = try reader.takeByte();
     if (level >= max_layers) return PersistError.InvalidNodeLevel;
 
     const vec = try allocator.alloc(f32, dim);
     errdefer allocator.free(vec);
-    try reader.readNoEof(std.mem.sliceAsBytes(vec));
+    const raw_bytes = try reader.take(dim * @sizeOf(f32));
+    @memcpy(std.mem.sliceAsBytes(vec), raw_bytes);
 
     for (vec) |v| {
         if (std.math.isNan(v) or std.math.isInf(v)) return PersistError.InvalidVector;
@@ -215,13 +219,13 @@ fn loadNode(allocator: Allocator, reader: anytype, dim: u32, max_layers: u8, nod
 }
 
 /// Read and validate connection lists for all layers of a node.
-fn loadConnections(allocator: Allocator, reader: anytype, level: u8, node_count: u32) ![]std.ArrayListUnmanaged(u32) {
+fn loadConnections(allocator: Allocator, reader: *Reader, level: u8, node_count: u32) ![]std.ArrayListUnmanaged(u32) {
     const num_layers: usize = @as(usize, level) + 1;
     const conns = try allocator.alloc(std.ArrayListUnmanaged(u32), num_layers);
     errdefer allocator.free(conns);
 
     for (conns) |*conn| {
-        conn.* = .{};
+        conn.* = .empty;
     }
     errdefer for (conns) |*conn| {
         conn.deinit(allocator);
@@ -243,40 +247,37 @@ fn loadConnections(allocator: Allocator, reader: anytype, level: u8, node_count:
 // Serialization helpers
 // ============================================================================
 
-fn writeU16(writer: anytype, value: u16) !void {
+fn writeU16(writer: *Writer, value: u16) !void {
     var buf: [2]u8 = undefined;
     std.mem.writeInt(u16, &buf, value, .little);
     try writer.writeAll(&buf);
 }
 
-fn writeU32(writer: anytype, value: u32) !void {
+fn writeU32(writer: *Writer, value: u32) !void {
     var buf: [4]u8 = undefined;
     std.mem.writeInt(u32, &buf, value, .little);
     try writer.writeAll(&buf);
 }
 
-fn writeU64(writer: anytype, value: u64) !void {
+fn writeU64(writer: *Writer, value: u64) !void {
     var buf: [8]u8 = undefined;
     std.mem.writeInt(u64, &buf, value, .little);
     try writer.writeAll(&buf);
 }
 
-fn readU16(reader: anytype) !u16 {
-    var buf: [2]u8 = undefined;
-    try reader.readNoEof(&buf);
-    return std.mem.readInt(u16, &buf, .little);
+fn readU16(reader: *Reader) !u16 {
+    const buf = try reader.takeArray(2);
+    return std.mem.readInt(u16, buf, .little);
 }
 
-fn readU32(reader: anytype) !u32 {
-    var buf: [4]u8 = undefined;
-    try reader.readNoEof(&buf);
-    return std.mem.readInt(u32, &buf, .little);
+fn readU32(reader: *Reader) !u32 {
+    const buf = try reader.takeArray(4);
+    return std.mem.readInt(u32, buf, .little);
 }
 
-fn readU64(reader: anytype) !u64 {
-    var buf: [8]u8 = undefined;
-    try reader.readNoEof(&buf);
-    return std.mem.readInt(u64, &buf, .little);
+fn readU64(reader: *Reader) !u64 {
+    const buf = try reader.takeArray(8);
+    return std.mem.readInt(u64, buf, .little);
 }
 
 // ============================================================================
@@ -297,21 +298,20 @@ fn buildTestHeader(buf: []u8, overrides: struct {
     entry_point: u32 = std.math.maxInt(u32),
     max_level: u8 = 0,
 }) usize {
-    var fbs = std.io.fixedBufferStream(buf);
-    const w = fbs.writer();
+    var w = Writer.fixed(buf);
     w.writeAll(&overrides.magic) catch unreachable;
-    writeU32(w, overrides.version) catch unreachable;
-    writeU32(w, overrides.dim) catch unreachable;
+    writeU32(&w, overrides.version) catch unreachable;
+    writeU32(&w, overrides.dim) catch unreachable;
     w.writeByte(overrides.metric) catch unreachable;
-    writeU16(w, overrides.m) catch unreachable;
-    writeU16(w, overrides.ef_construction) catch unreachable;
-    writeU16(w, overrides.ef_search) catch unreachable;
+    writeU16(&w, overrides.m) catch unreachable;
+    writeU16(&w, overrides.ef_construction) catch unreachable;
+    writeU16(&w, overrides.ef_search) catch unreachable;
     w.writeByte(overrides.max_layers) catch unreachable;
-    writeU64(w, overrides.seed) catch unreachable;
-    writeU32(w, overrides.node_count) catch unreachable;
-    writeU32(w, overrides.entry_point) catch unreachable;
+    writeU64(&w, overrides.seed) catch unreachable;
+    writeU32(&w, overrides.node_count) catch unreachable;
+    writeU32(&w, overrides.entry_point) catch unreachable;
     w.writeByte(overrides.max_level) catch unreachable;
-    return fbs.pos;
+    return w.end;
 }
 
 // ============================================================================
@@ -323,11 +323,12 @@ test "save and load empty index" {
     defer index.deinit();
 
     var buf: [4096]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
-    try save(&index, fbs.writer());
+    var w = Writer.fixed(&buf);
+    try save(&index, &w);
+    const written = w.end;
 
-    fbs.pos = 0;
-    var loaded = try load(std.testing.allocator, fbs.reader());
+    var r = Reader.fixed(buf[0..written]);
+    var loaded = try load(std.testing.allocator, &r);
     defer loaded.deinit();
 
     try std.testing.expectEqual(index.dim, loaded.dim);
@@ -345,11 +346,12 @@ test "save and load index with vectors" {
     try index.insert(30, &[_]f32{ 5.0, 6.0 });
 
     var buf: [65536]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
-    try save(&index, fbs.writer());
+    var w = Writer.fixed(&buf);
+    try save(&index, &w);
+    const written = w.end;
 
-    fbs.pos = 0;
-    var loaded = try load(std.testing.allocator, fbs.reader());
+    var r = Reader.fixed(buf[0..written]);
+    var loaded = try load(std.testing.allocator, &r);
     defer loaded.deinit();
 
     try std.testing.expectEqual(index.dim, loaded.dim);
@@ -367,8 +369,8 @@ test "save and load index with vectors" {
 
 test "load rejects invalid magic" {
     const bad_data = [_]u8{ 'B', 'A', 'D', '!' } ++ [_]u8{0} ** 32;
-    var fbs = std.io.fixedBufferStream(&bad_data);
-    const result = load(std.testing.allocator, fbs.reader());
+    var r = Reader.fixed(&bad_data);
+    const result = load(std.testing.allocator, &r);
     try std.testing.expectError(PersistError.InvalidMagic, result);
 }
 
@@ -376,42 +378,42 @@ test "load rejects unsupported version" {
     var buf: [128]u8 = undefined;
     const pos = buildTestHeader(&buf, .{ .version = 99 });
     _ = pos;
-    var fbs = std.io.fixedBufferStream(&buf);
-    try std.testing.expectError(PersistError.UnsupportedVersion, load(std.testing.allocator, fbs.reader()));
+    var r = Reader.fixed(&buf);
+    try std.testing.expectError(PersistError.UnsupportedVersion, load(std.testing.allocator, &r));
 }
 
 test "load rejects dim=0" {
     var buf: [128]u8 = undefined;
     _ = buildTestHeader(&buf, .{ .dim = 0 });
-    var fbs = std.io.fixedBufferStream(&buf);
-    try std.testing.expectError(PersistError.InvalidDimension, load(std.testing.allocator, fbs.reader()));
+    var r = Reader.fixed(&buf);
+    try std.testing.expectError(PersistError.InvalidDimension, load(std.testing.allocator, &r));
 }
 
 test "load rejects invalid metric" {
     var buf: [128]u8 = undefined;
     _ = buildTestHeader(&buf, .{ .metric = 255 });
-    var fbs = std.io.fixedBufferStream(&buf);
-    try std.testing.expectError(PersistError.InvalidMetric, load(std.testing.allocator, fbs.reader()));
+    var r = Reader.fixed(&buf);
+    try std.testing.expectError(PersistError.InvalidMetric, load(std.testing.allocator, &r));
 }
 
 test "load rejects m=0" {
     var buf: [128]u8 = undefined;
     _ = buildTestHeader(&buf, .{ .m = 0 });
-    var fbs = std.io.fixedBufferStream(&buf);
-    try std.testing.expectError(PersistError.InvalidConfig, load(std.testing.allocator, fbs.reader()));
+    var r = Reader.fixed(&buf);
+    try std.testing.expectError(PersistError.InvalidConfig, load(std.testing.allocator, &r));
 }
 
 test "load rejects max_layers=0" {
     var buf: [128]u8 = undefined;
     _ = buildTestHeader(&buf, .{ .max_layers = 0 });
-    var fbs = std.io.fixedBufferStream(&buf);
-    try std.testing.expectError(PersistError.InvalidConfig, load(std.testing.allocator, fbs.reader()));
+    var r = Reader.fixed(&buf);
+    try std.testing.expectError(PersistError.InvalidConfig, load(std.testing.allocator, &r));
 }
 
 test "load rejects invalid entry_point" {
     var buf: [128]u8 = undefined;
     // node_count=0 but entry_point=5 (not null)
     _ = buildTestHeader(&buf, .{ .node_count = 0, .entry_point = 5 });
-    var fbs = std.io.fixedBufferStream(&buf);
-    try std.testing.expectError(PersistError.InvalidEntryPoint, load(std.testing.allocator, fbs.reader()));
+    var r = Reader.fixed(&buf);
+    try std.testing.expectError(PersistError.InvalidEntryPoint, load(std.testing.allocator, &r));
 }

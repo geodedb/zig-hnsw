@@ -7,15 +7,16 @@ const std = @import("std");
 const hnsw = @import("hnsw");
 
 pub fn main() !void {
+    const io = std.Io.Threaded.global_single_threaded.io();
     var write_buf: [4096]u8 = undefined;
-    var file_writer = std.fs.File.stdout().writer(&write_buf);
+    var file_writer = std.Io.File.stdout().writerStreaming(io, &write_buf);
     const stdout = &file_writer.interface;
 
     try stdout.print("HNSW Nearest-Neighbor Search Example\n", .{});
     try stdout.print("====================================\n\n", .{});
 
-    // Use a general purpose allocator
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    // Use a debug allocator
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 

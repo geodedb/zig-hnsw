@@ -125,6 +125,15 @@ const TIER_TIMEOUT_NS: u64 = 15 * 60 * std.time.ns_per_s;
 // Helpers
 // ---------------------------------------------------------------------------
 
+fn getIo() std.Io {
+    return std.Io.Threaded.global_single_threaded.io();
+}
+
+fn nowNs() u64 {
+    const ts = std.Io.Timestamp.now(getIo(), .awake);
+    return @intCast(@as(i128, ts.nanoseconds));
+}
+
 fn makeVector(buf: []f32, id: u64) void {
     var rng = std.Random.DefaultPrng.init(id);
     const random = rng.random();
@@ -168,32 +177,6 @@ fn bruteForceKnn(
 }
 
 // ---------------------------------------------------------------------------
-// Stdout writer (buffered, for JSON output)
-// ---------------------------------------------------------------------------
-
-const StdoutWriter = struct {
-    file: std.fs.File,
-    buf: [8192]u8 = undefined,
-    writer: ?std.fs.File.Writer = null,
-
-    fn open(self: *StdoutWriter) void {
-        self.writer = self.file.writer(&self.buf);
-    }
-
-    fn writeAll(self: *StdoutWriter, data: []const u8) !void {
-        try self.writer.?.interface.writeAll(data);
-    }
-
-    fn writeFmt(self: *StdoutWriter, comptime fmt: []const u8, args: anytype) !void {
-        try self.writer.?.interface.print(fmt, args);
-    }
-
-    fn flush(self: *StdoutWriter) !void {
-        try self.writer.?.interface.flush();
-    }
-};
-
-// ---------------------------------------------------------------------------
 // Individual benchmark functions
 // ---------------------------------------------------------------------------
 
@@ -207,12 +190,12 @@ fn benchInsert(allocator: std.mem.Allocator, tier: Tier) !f64 {
 
     var vec_buf: [DIM]f32 = undefined;
 
-    var timer = try std.time.Timer.start();
+    const start = nowNs();
     for (0..tier.insert_iters) |i| {
         makeVector(&vec_buf, i);
         try index.insert(@intCast(i), &vec_buf);
     }
-    const elapsed = timer.read();
+    const elapsed = nowNs() - start;
 
     const count_f: f64 = @floatFromInt(tier.insert_iters);
     const ns_f: f64 = @floatFromInt(elapsed);
@@ -234,13 +217,13 @@ fn benchSearch(allocator: std.mem.Allocator, tier: Tier, k: u32, ef: u16) !f64 {
     }
 
     var query_buf: [DIM]f32 = undefined;
-    var timer = try std.time.Timer.start();
+    const start = nowNs();
     for (0..tier.search_iters) |i| {
         makeVector(&query_buf, tier.vector_count + i);
         const results = try index.knnSearch(&query_buf, k);
         if (results.len > 0) allocator.free(results);
     }
-    const elapsed = timer.read();
+    const elapsed = nowNs() - start;
 
     const ns_f: f64 = @floatFromInt(elapsed);
     const count_f: f64 = @floatFromInt(tier.search_iters);
@@ -312,10 +295,10 @@ fn benchSave(allocator: std.mem.Allocator, tier: Tier) !f64 {
     const buf = try allocator.alloc(u8, buf_size);
     defer allocator.free(buf);
 
-    var timer = try std.time.Timer.start();
-    var fbs = std.io.fixedBufferStream(buf);
-    try persist.save(&index, fbs.writer());
-    const elapsed = timer.read();
+    const start = nowNs();
+    var w = std.Io.Writer.fixed(buf);
+    try persist.save(&index, &w);
+    const elapsed = nowNs() - start;
 
     return @as(f64, @floatFromInt(elapsed)) / 1_000_000.0;
 }
@@ -337,15 +320,15 @@ fn benchLoad(allocator: std.mem.Allocator, tier: Tier) !f64 {
     const buf = try allocator.alloc(u8, buf_size);
     defer allocator.free(buf);
 
-    var fbs = std.io.fixedBufferStream(buf);
-    try persist.save(&index, fbs.writer());
-    const written = fbs.pos;
+    var w = std.Io.Writer.fixed(buf);
+    try persist.save(&index, &w);
+    const written = w.end;
 
-    var timer = try std.time.Timer.start();
-    var read_stream = std.io.fixedBufferStream(buf[0..written]);
-    var loaded = try persist.load(allocator, read_stream.reader());
+    const start = nowNs();
+    var r = std.Io.Reader.fixed(buf[0..written]);
+    var loaded = try persist.load(allocator, &r);
     loaded.deinit();
-    const elapsed = timer.read();
+    const elapsed = nowNs() - start;
 
     return @as(f64, @floatFromInt(elapsed)) / 1_000_000.0;
 }
@@ -371,9 +354,9 @@ fn benchBatchInsert(allocator: std.mem.Allocator, tier: Tier) !f64 {
         vec_ptrs[i] = &vec_storage[i];
     }
 
-    var timer = try std.time.Timer.start();
+    const start = nowNs();
     try index.batchInsert(ids, vec_ptrs);
-    const elapsed = timer.read();
+    const elapsed = nowNs() - start;
 
     const count_f: f64 = @floatFromInt(count);
     const ns_f: f64 = @floatFromInt(elapsed);
@@ -385,9 +368,7 @@ fn benchBatchInsert(allocator: std.mem.Allocator, tier: Tier) !f64 {
 // ---------------------------------------------------------------------------
 
 fn runTier(allocator: std.mem.Allocator, tier: Tier) TierResult {
-    var tier_start = std.time.Timer.start() catch {
-        return skipResult(tier, "timer init failed");
-    };
+    const tier_start = nowNs();
 
     // --- Insert throughput ---
     var insert_ops_sec: f64 = 0;
@@ -396,7 +377,7 @@ fn runTier(allocator: std.mem.Allocator, tier: Tier) TierResult {
     } else |err| {
         print("ERROR in benchInsert: {any}\n", .{err});
     }
-    if (checkTimeout(&tier_start, tier)) |r| return r;
+    if (nowNs() - tier_start > TIER_TIMEOUT_NS) return skipResult(tier, "timeout (>15min)");
 
     // --- Search k=10 ---
     var search_avg_ns: f64 = 0;
@@ -405,7 +386,7 @@ fn runTier(allocator: std.mem.Allocator, tier: Tier) TierResult {
     } else |err| {
         print("ERROR in benchSearch k=10: {any}\n", .{err});
     }
-    if (checkTimeout(&tier_start, tier)) |r| return r;
+    if (nowNs() - tier_start > TIER_TIMEOUT_NS) return skipResult(tier, "timeout (>15min)");
 
     // --- Search k=50 ---
     var search_k50_avg_ns: f64 = 0;
@@ -414,7 +395,7 @@ fn runTier(allocator: std.mem.Allocator, tier: Tier) TierResult {
     } else |err| {
         print("ERROR in benchSearch k=50: {any}\n", .{err});
     }
-    if (checkTimeout(&tier_start, tier)) |r| return r;
+    if (nowNs() - tier_start > TIER_TIMEOUT_NS) return skipResult(tier, "timeout (>15min)");
 
     // --- Search ef=200 ---
     var search_ef200_avg_ns: f64 = 0;
@@ -423,7 +404,7 @@ fn runTier(allocator: std.mem.Allocator, tier: Tier) TierResult {
     } else |err| {
         print("ERROR in benchSearch ef=200: {any}\n", .{err});
     }
-    if (checkTimeout(&tier_start, tier)) |r| return r;
+    if (nowNs() - tier_start > TIER_TIMEOUT_NS) return skipResult(tier, "timeout (>15min)");
 
     // --- Recall ---
     var recall_at_10: f64 = 0;
@@ -432,7 +413,7 @@ fn runTier(allocator: std.mem.Allocator, tier: Tier) TierResult {
     } else |err| {
         print("ERROR in benchRecall: {any}\n", .{err});
     }
-    if (checkTimeout(&tier_start, tier)) |r| return r;
+    if (nowNs() - tier_start > TIER_TIMEOUT_NS) return skipResult(tier, "timeout (>15min)");
 
     // --- Save ---
     var save_ms: f64 = 0;
@@ -441,7 +422,7 @@ fn runTier(allocator: std.mem.Allocator, tier: Tier) TierResult {
     } else |err| {
         print("ERROR in benchSave: {any}\n", .{err});
     }
-    if (checkTimeout(&tier_start, tier)) |r| return r;
+    if (nowNs() - tier_start > TIER_TIMEOUT_NS) return skipResult(tier, "timeout (>15min)");
 
     // --- Load ---
     var load_ms: f64 = 0;
@@ -450,7 +431,7 @@ fn runTier(allocator: std.mem.Allocator, tier: Tier) TierResult {
     } else |err| {
         print("ERROR in benchLoad: {any}\n", .{err});
     }
-    if (checkTimeout(&tier_start, tier)) |r| return r;
+    if (nowNs() - tier_start > TIER_TIMEOUT_NS) return skipResult(tier, "timeout (>15min)");
 
     // --- Batch insert ---
     var batch_insert_ops_sec: f64 = 0;
@@ -474,14 +455,6 @@ fn runTier(allocator: std.mem.Allocator, tier: Tier) TierResult {
     };
 }
 
-fn checkTimeout(tier_start: *std.time.Timer, tier: Tier) ?TierResult {
-    const elapsed = tier_start.read();
-    if (elapsed > TIER_TIMEOUT_NS) {
-        return skipResult(tier, "timeout (>15min)");
-    }
-    return null;
-}
-
 fn skipResult(tier: Tier, reason: []const u8) TierResult {
     return TierResult{
         .name = tier.name,
@@ -503,18 +476,19 @@ fn skipResult(tier: Tier, reason: []const u8) TierResult {
 // JSON output to stdout
 // ---------------------------------------------------------------------------
 
-fn writeJsonOutput(out: *StdoutWriter, results: []const TierResult) !void {
-    try out.writeAll("{\n");
-    try out.writeAll("  \"version\": 1,\n");
+fn writeJsonOutput(w: *std.Io.Writer, results: []const TierResult) !void {
+    try w.writeAll("{\n");
+    try w.writeAll("  \"version\": 1,\n");
 
-    const ts = std.time.timestamp();
-    const epoch_secs: u64 = @intCast(ts);
+    const io = getIo();
+    const now_ts = std.Io.Timestamp.now(io, .real);
+    const epoch_secs: u64 = @intCast(@divTrunc(now_ts.nanoseconds, std.time.ns_per_s));
     const es = std.time.epoch.EpochSeconds{ .secs = epoch_secs };
     const day_secs = es.getDaySeconds();
     const year_day = es.getEpochDay().calculateYearDay();
     const month_day = year_day.calculateMonthDay();
 
-    try out.writeFmt("  \"timestamp\": \"{d:0>4}-{d:0>2}-{d:0>2}T{d:0>2}:{d:0>2}:{d:0>2}Z\",\n", .{
+    try w.print("  \"timestamp\": \"{d:0>4}-{d:0>2}-{d:0>2}T{d:0>2}:{d:0>2}:{d:0>2}Z\",\n", .{
         year_day.year,
         month_day.month.numeric(),
         month_day.day_index + 1,
@@ -523,43 +497,43 @@ fn writeJsonOutput(out: *StdoutWriter, results: []const TierResult) !void {
         day_secs.getSecondsIntoMinute(),
     });
 
-    try out.writeAll("  \"git_commit\": \"unknown\",\n");
+    try w.writeAll("  \"git_commit\": \"unknown\",\n");
 
-    try out.writeFmt("  \"system\": {{ \"os\": \"{s}\", \"arch\": \"{s}\" }},\n", .{
+    try w.print("  \"system\": {{ \"os\": \"{s}\", \"arch\": \"{s}\" }},\n", .{
         @tagName(builtin.os.tag),
         @tagName(builtin.cpu.arch),
     });
 
-    try out.writeFmt("  \"dim\": {d},\n", .{DIM});
+    try w.print("  \"dim\": {d},\n", .{DIM});
 
-    try out.writeAll("  \"tiers\": [\n");
+    try w.writeAll("  \"tiers\": [\n");
     for (results, 0..) |r, i| {
-        try out.writeAll("    {\n");
-        try out.writeFmt("      \"name\": \"{s}\",\n", .{r.name});
-        try out.writeFmt("      \"vector_count\": {d},\n", .{r.vector_count});
+        try w.writeAll("    {\n");
+        try w.print("      \"name\": \"{s}\",\n", .{r.name});
+        try w.print("      \"vector_count\": {d},\n", .{r.vector_count});
         if (r.skipped) {
-            try out.writeAll("      \"skipped\": true,\n");
+            try w.writeAll("      \"skipped\": true,\n");
             if (r.skip_reason) |reason| {
-                try out.writeFmt("      \"skip_reason\": \"{s}\",\n", .{reason});
+                try w.print("      \"skip_reason\": \"{s}\",\n", .{reason});
             }
         }
-        try out.writeFmt("      \"insert_ops_sec\": {d:.0},\n", .{r.insert_ops_sec});
-        try out.writeFmt("      \"search_avg_ns\": {d:.0},\n", .{r.search_avg_ns});
-        try out.writeFmt("      \"search_k50_avg_ns\": {d:.0},\n", .{r.search_k50_avg_ns});
-        try out.writeFmt("      \"search_ef200_avg_ns\": {d:.0},\n", .{r.search_ef200_avg_ns});
-        try out.writeFmt("      \"recall_at_10\": {d:.4},\n", .{r.recall_at_10});
-        try out.writeFmt("      \"save_ms\": {d:.1},\n", .{r.save_ms});
-        try out.writeFmt("      \"load_ms\": {d:.1},\n", .{r.load_ms});
-        try out.writeFmt("      \"batch_insert_ops_sec\": {d:.0}\n", .{r.batch_insert_ops_sec});
+        try w.print("      \"insert_ops_sec\": {d:.0},\n", .{r.insert_ops_sec});
+        try w.print("      \"search_avg_ns\": {d:.0},\n", .{r.search_avg_ns});
+        try w.print("      \"search_k50_avg_ns\": {d:.0},\n", .{r.search_k50_avg_ns});
+        try w.print("      \"search_ef200_avg_ns\": {d:.0},\n", .{r.search_ef200_avg_ns});
+        try w.print("      \"recall_at_10\": {d:.4},\n", .{r.recall_at_10});
+        try w.print("      \"save_ms\": {d:.1},\n", .{r.save_ms});
+        try w.print("      \"load_ms\": {d:.1},\n", .{r.load_ms});
+        try w.print("      \"batch_insert_ops_sec\": {d:.0}\n", .{r.batch_insert_ops_sec});
         if (i < results.len - 1) {
-            try out.writeAll("    },\n");
+            try w.writeAll("    },\n");
         } else {
-            try out.writeAll("    }\n");
+            try w.writeAll("    }\n");
         }
     }
-    try out.writeAll("  ]\n");
-    try out.writeAll("}\n");
-    try out.flush();
+    try w.writeAll("  ]\n");
+    try w.writeAll("}\n");
+    try w.flush();
 }
 
 // ---------------------------------------------------------------------------
@@ -607,10 +581,10 @@ fn writeSummary(results: []const TierResult) void {
 // Main
 // ---------------------------------------------------------------------------
 
-pub fn main() !void {
+pub fn main(init: std.process.Init.Minimal) !void {
     const allocator = std.heap.page_allocator;
 
-    var args = std.process.args();
+    var args = std.process.Args.Iterator.init(init.args);
     _ = args.next();
 
     var max_tier_count: usize = tiers.len;
@@ -642,7 +616,10 @@ pub fn main() !void {
 
     writeSummary(results[0..completed]);
 
-    var out = StdoutWriter{ .file = .{ .handle = std.posix.STDOUT_FILENO } };
-    out.open();
-    try writeJsonOutput(&out, results[0..completed]);
+    // Write JSON to stdout
+    const io = getIo();
+    const stdout = std.Io.File.stdout();
+    var stdout_buf: [8192]u8 = undefined;
+    var file_writer = stdout.writerStreaming(io, &stdout_buf);
+    try writeJsonOutput(&file_writer.interface, results[0..completed]);
 }

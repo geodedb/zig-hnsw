@@ -115,11 +115,12 @@ test "integration: save and load preserves search results" {
     defer std.testing.allocator.free(before);
 
     var buf: [65536]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
-    try lib.persist.save(&index, fbs.writer());
+    var w = std.Io.Writer.fixed(&buf);
+    try lib.persist.save(&index, &w);
+    const written = w.end;
 
-    fbs.pos = 0;
-    var loaded = try lib.persist.load(std.testing.allocator, fbs.reader());
+    var r = std.Io.Reader.fixed(buf[0..written]);
+    var loaded = try lib.persist.load(std.testing.allocator, &r);
     defer loaded.deinit();
 
     const after = try loaded.knnSearch(&query, 3);

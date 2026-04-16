@@ -97,14 +97,15 @@ fn benchSingleInsert(allocator: std.mem.Allocator) !BenchResult {
 
     var vec_buf: [DIM]f32 = undefined;
 
-    var timer = try std.time.Timer.start();
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const timer_start = std.Io.Timestamp.now(io, .awake);
 
     for (0..INSERT_COUNT) |i| {
         makeVector(&vec_buf, i);
         try index.insert(@intCast(i), &vec_buf);
     }
 
-    const elapsed = timer.read();
+    const elapsed: u64 = @intCast(timer_start.durationTo(std.Io.Timestamp.now(io, .awake)).toNanoseconds());
     return BenchResult{ .name = "single insert", .count = INSERT_COUNT, .total_ns = elapsed };
 }
 
@@ -123,9 +124,10 @@ fn benchBatchInsert(allocator: std.mem.Allocator) !BenchResult {
         vectors[i] = &vec_storage[i];
     }
 
-    var timer = try std.time.Timer.start();
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const timer_start = std.Io.Timestamp.now(io, .awake);
     try index.batchInsert(&ids, &vectors);
-    const elapsed = timer.read();
+    const elapsed: u64 = @intCast(timer_start.durationTo(std.Io.Timestamp.now(io, .awake)).toNanoseconds());
 
     return BenchResult{ .name = "batch insert", .count = BATCH_SIZE, .total_ns = elapsed };
 }
@@ -143,7 +145,8 @@ fn benchSearchK10(allocator: std.mem.Allocator) !BenchResult {
 
     // Search
     var query_buf: [DIM]f32 = undefined;
-    var timer = try std.time.Timer.start();
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const timer_start = std.Io.Timestamp.now(io, .awake);
 
     for (0..SEARCH_ITERATIONS) |i| {
         makeVector(&query_buf, INSERT_COUNT + i);
@@ -151,7 +154,7 @@ fn benchSearchK10(allocator: std.mem.Allocator) !BenchResult {
         if (results.len > 0) allocator.free(results);
     }
 
-    const elapsed = timer.read();
+    const elapsed: u64 = @intCast(timer_start.durationTo(std.Io.Timestamp.now(io, .awake)).toNanoseconds());
     return BenchResult{ .name = "kNN search (k=10)", .count = SEARCH_ITERATIONS, .total_ns = elapsed };
 }
 
@@ -166,7 +169,8 @@ fn benchSearchK50(allocator: std.mem.Allocator) !BenchResult {
     }
 
     var query_buf: [DIM]f32 = undefined;
-    var timer = try std.time.Timer.start();
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const timer_start = std.Io.Timestamp.now(io, .awake);
 
     for (0..SEARCH_ITERATIONS) |i| {
         makeVector(&query_buf, INSERT_COUNT + i);
@@ -174,7 +178,7 @@ fn benchSearchK50(allocator: std.mem.Allocator) !BenchResult {
         if (results.len > 0) allocator.free(results);
     }
 
-    const elapsed = timer.read();
+    const elapsed: u64 = @intCast(timer_start.durationTo(std.Io.Timestamp.now(io, .awake)).toNanoseconds());
     return BenchResult{ .name = "kNN search (k=50)", .count = SEARCH_ITERATIONS, .total_ns = elapsed };
 }
 
@@ -190,7 +194,8 @@ fn benchSearchHighEf(allocator: std.mem.Allocator) !BenchResult {
 
     const iterations: usize = 500;
     var query_buf: [DIM]f32 = undefined;
-    var timer = try std.time.Timer.start();
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const timer_start = std.Io.Timestamp.now(io, .awake);
 
     for (0..iterations) |i| {
         makeVector(&query_buf, INSERT_COUNT + i);
@@ -198,7 +203,7 @@ fn benchSearchHighEf(allocator: std.mem.Allocator) !BenchResult {
         if (results.len > 0) allocator.free(results);
     }
 
-    const elapsed = timer.read();
+    const elapsed: u64 = @intCast(timer_start.durationTo(std.Io.Timestamp.now(io, .awake)).toNanoseconds());
     return BenchResult{ .name = "kNN search (ef=200)", .count = iterations, .total_ns = elapsed };
 }
 
@@ -217,14 +222,15 @@ fn benchPersistSave(allocator: std.mem.Allocator) !BenchResult {
     defer allocator.free(buf);
 
     const iterations: usize = 10;
-    var timer = try std.time.Timer.start();
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const timer_start = std.Io.Timestamp.now(io, .awake);
 
     for (0..iterations) |_| {
-        var fbs = std.io.fixedBufferStream(buf);
-        try persist.save(&index, fbs.writer());
+        var w = std.Io.Writer.fixed(buf);
+        try persist.save(&index, &w);
     }
 
-    const elapsed = timer.read();
+    const elapsed: u64 = @intCast(timer_start.durationTo(std.Io.Timestamp.now(io, .awake)).toNanoseconds());
     return BenchResult{ .name = "persist save (5k nodes)", .count = iterations, .total_ns = elapsed };
 }
 
@@ -241,20 +247,21 @@ fn benchPersistLoad(allocator: std.mem.Allocator) !BenchResult {
     // Serialize once
     const buf = try allocator.alloc(u8, 128 * 1024 * 1024);
     defer allocator.free(buf);
-    var fbs = std.io.fixedBufferStream(buf);
-    try persist.save(&index, fbs.writer());
-    const written = fbs.pos;
+    var w = std.Io.Writer.fixed(buf);
+    try persist.save(&index, &w);
+    const written = w.end;
 
     const iterations: usize = 10;
-    var timer = try std.time.Timer.start();
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const timer_start = std.Io.Timestamp.now(io, .awake);
 
     for (0..iterations) |_| {
-        var read_stream = std.io.fixedBufferStream(buf[0..written]);
-        var loaded = try persist.load(allocator, read_stream.reader());
+        var r = std.Io.Reader.fixed(buf[0..written]);
+        var loaded = try persist.load(allocator, &r);
         loaded.deinit();
     }
 
-    const elapsed = timer.read();
+    const elapsed: u64 = @intCast(timer_start.durationTo(std.Io.Timestamp.now(io, .awake)).toNanoseconds());
     return BenchResult{ .name = "persist load (5k nodes)", .count = iterations, .total_ns = elapsed };
 }
 
@@ -269,7 +276,8 @@ fn benchCosineSearch(allocator: std.mem.Allocator) !BenchResult {
     }
 
     var query_buf: [DIM]f32 = undefined;
-    var timer = try std.time.Timer.start();
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const timer_start = std.Io.Timestamp.now(io, .awake);
 
     for (0..SEARCH_ITERATIONS) |i| {
         makeVector(&query_buf, INSERT_COUNT + i);
@@ -277,7 +285,7 @@ fn benchCosineSearch(allocator: std.mem.Allocator) !BenchResult {
         if (results.len > 0) allocator.free(results);
     }
 
-    const elapsed = timer.read();
+    const elapsed: u64 = @intCast(timer_start.durationTo(std.Io.Timestamp.now(io, .awake)).toNanoseconds());
     return BenchResult{ .name = "cosine search (k=10)", .count = SEARCH_ITERATIONS, .total_ns = elapsed };
 }
 

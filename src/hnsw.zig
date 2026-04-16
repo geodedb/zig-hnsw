@@ -155,7 +155,7 @@ pub const Hnsw = struct {
             .dim = dim,
             .metric = metric,
             .config = config,
-            .nodes = .{},
+            .nodes = .empty,
             .entry_point = null,
             .max_level = 0,
             .prng_mutex = std.Io.Mutex.init,
@@ -203,7 +203,7 @@ pub const Hnsw = struct {
     ///
     /// Takes the write lock once for the entire batch and pre-generates
     /// all random levels on the caller's thread. Each individual insertion
-    /// benefits from spice-parallelized distance computations in `searchLayer`.
+    /// benefits from parallelized distance computations in `searchLayer`.
     ///
     /// `ids` and `vectors` must have the same length. Each element of
     /// `vectors` must have length `self.dim`.
@@ -232,7 +232,7 @@ pub const Hnsw = struct {
             const conns = try self.allocator.alloc(std.ArrayListUnmanaged(u32), num_layers);
             errdefer self.allocator.free(conns);
             for (conns) |*c| {
-                c.* = .{};
+                c.* = .empty;
             }
 
             const idx: u32 = @intCast(self.nodes.items.len);
@@ -270,7 +270,7 @@ pub const Hnsw = struct {
 
         // Phase 2: Insert at layers min(new_level, max_level) down to 0
         const top_layer = @min(new_level, self.max_level);
-        var eps: std.ArrayListUnmanaged(u32) = .{};
+        var eps: std.ArrayListUnmanaged(u32) = .empty;
         try eps.append(temp, current_ep);
 
         var lc: u8 = top_layer;
@@ -436,7 +436,7 @@ pub const Hnsw = struct {
     /// Beam search at a given layer. Returns candidates sorted by distance ascending.
     ///
     /// Distance computations for neighbor candidates are parallelized via
-    /// spice fork/join when the batch exceeds `parallel_distance_threshold`.
+    /// thread_pool fork/join when the batch exceeds `parallel_distance_threshold`.
     fn searchLayer(
         self: *const Hnsw,
         temp: Allocator,
@@ -473,7 +473,7 @@ pub const Hnsw = struct {
         const mutable_self: *Hnsw = @constCast(self);
 
         while (candidates.count() > 0) {
-            const nearest = candidates.remove();
+            const nearest = candidates.pop().?;
             const farthest = results.peek() orelse break;
 
             if (nearest.dist > farthest.dist) break;
@@ -552,7 +552,7 @@ pub const Hnsw = struct {
                     try results.push(temp, c);
 
                     if (results.count() > ef) {
-                        _ = results.remove();
+                        _ = results.pop();
                     }
                 }
             }
@@ -564,7 +564,7 @@ pub const Hnsw = struct {
         var i: usize = len;
         while (i > 0) {
             i -= 1;
-            sorted[i] = results.remove();
+            sorted[i] = results.pop().?;
         }
         return sorted;
     }

@@ -98,13 +98,20 @@ const metrics = [_]Metric{
 // ---------------------------------------------------------------------------
 
 fn readJsonFile(allocator: std.mem.Allocator, path: []const u8) !BenchResult {
-    const file = std.fs.cwd().openFile(path, .{}) catch |err| {
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const dir = std.Io.Dir.cwd();
+    const file = dir.openFile(io, path, .{}) catch |err| {
         print("Error: cannot open '{s}': {s}\n", .{ path, @errorName(err) });
         return err;
     };
-    defer file.close();
+    defer file.close(io);
 
-    const content = try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
+    var read_buf: [8192]u8 = undefined;
+    var file_reader = file.readerStreaming(io, &read_buf);
+    const content = file_reader.interface.allocRemaining(allocator, .limited(10 * 1024 * 1024)) catch |err| {
+        print("Error: failed to read '{s}': {s}\n", .{ path, @errorName(err) });
+        return err;
+    };
     defer allocator.free(content);
 
     const parsed = std.json.parseFromSlice(BenchResult, allocator, content, .{
@@ -147,10 +154,10 @@ fn isRegression(delta_pct: f64, kind: MetricKind, threshold: f64) bool {
 // Main
 // ---------------------------------------------------------------------------
 
-pub fn main() !void {
+pub fn main(init: std.process.Init.Minimal) !void {
     const allocator = std.heap.page_allocator;
 
-    var args = std.process.args();
+    var args = std.process.Args.Iterator.init(init.args);
     _ = args.next();
 
     const baseline_path = args.next() orelse {
