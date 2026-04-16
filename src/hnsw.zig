@@ -480,8 +480,8 @@ pub const Hnsw = struct {
         var results = MaxHeap.initContext({});
 
         // Pre-allocate heaps with known ef capacity
-        try candidates.ensureTotalCapacity(ef);
-        try results.ensureTotalCapacity(ef);
+        try candidates.ensureTotalCapacity(temp, ef);
+        try results.ensureTotalCapacity(temp, ef);
 
         for (entry_points) |ep| {
             if (visited.contains(ep)) continue;
