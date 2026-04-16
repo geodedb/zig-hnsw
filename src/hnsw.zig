@@ -168,6 +168,9 @@ pub const Hnsw = struct {
 
     /// Free all memory owned by the index.
     pub fn deinit(self: *Hnsw) void {
+        // Drain in-flight distance tasks before tearing down the pool so
+        // workers don't observe freed `Node` storage (PAR-0003).
+        self.pool.shutdown(.drain, 5 * std.time.ns_per_s) catch {};
         self.pool.deinit();
         self.allocator.destroy(self.pool);
         for (self.nodes.items) |*node| {
@@ -415,19 +418,22 @@ pub const Hnsw = struct {
     const MAX_CHUNKS: usize = 64;
 
     /// Arguments for a single chunk of parallel distance computation.
+    ///
+    /// WaitGroup bookkeeping is driven by `SubmitOptions.wait_group`, not by
+    /// the task itself — the pool performs `wg.add(1)` at enqueue and
+    /// `wg.done()` after the task runs.  Keeping a `wg` field here (and
+    /// calling `done()` inside the task) would double-count.
     const DistChunkCtx = struct {
         indices: []const u32,
         distances: []f32,
         vectors: []const Node,
         query: []const f32,
         metric: DistanceMetric,
-        wg: *tp.WaitGroup,
     };
 
     /// Task function for a single distance-computation chunk.
     fn distChunkTask(raw_ctx: *anyopaque, _: *tp.TaskContext) void {
         const ctx: *DistChunkCtx = @ptrCast(@alignCast(raw_ctx));
-        defer ctx.wg.done();
         for (ctx.indices, ctx.distances) |idx, *d| {
             d.* = dist.compute(ctx.metric, ctx.query, ctx.vectors[idx].vector);
         }
@@ -505,7 +511,6 @@ pub const Hnsw = struct {
                 var chunk_ctxs: [MAX_CHUNKS]DistChunkCtx = undefined;
                 var batch_tasks: [MAX_CHUNKS]tp.BatchTask = undefined;
                 var wg = mutable_self.pool.waitGroup();
-                wg.add(@intCast(n_chunks));
 
                 for (0..n_chunks) |i| {
                     const start = i * chunk_size;
@@ -516,7 +521,6 @@ pub const Hnsw = struct {
                         .vectors = self.nodes.items,
                         .query = query,
                         .metric = self.metric,
-                        .wg = &wg,
                     };
                     batch_tasks[i] = .{
                         .task_fn = distChunkTask,
@@ -524,17 +528,23 @@ pub const Hnsw = struct {
                     };
                 }
 
-                _ = mutable_self.pool.submitBatch(batch_tasks[0..n_chunks], .{ .wait_group = &wg }) catch {
-                    // Fallback: process sequentially if submit fails.
-                    // We still need to call done() for each chunk we did NOT submit.
-                    // Easiest: just drain sequentially and release all wg counts.
-                    for (0..n_chunks) |i| {
+                // `submitBatch` drives `wg.add(1)` per enqueued task; workers
+                // call `wg.done()` after the task runs.  The task body does
+                // NOT touch `wg` — see DistChunkCtx comment.
+                const submitted: usize = if (mutable_self.pool.submitBatch(
+                    batch_tasks[0..n_chunks],
+                    .{ .wait_group = &wg },
+                )) |r| r.submitted else |_| 0;
+                // Run any chunks that did not get enqueued (partial submit or
+                // full error) on the caller's thread.  `wg` has no accounting
+                // for these because they never entered the pool.
+                if (submitted < n_chunks) {
+                    for (submitted..n_chunks) |i| {
                         for (chunk_ctxs[i].indices, chunk_ctxs[i].distances) |idx, *d| {
                             d.* = dist.compute(self.metric, query, self.nodes.items[idx].vector);
                         }
-                        wg.done();
                     }
-                };
+                }
                 wg.wait();
             } else {
                 for (unvisited, distances) |idx, *d| {
