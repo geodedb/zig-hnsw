@@ -356,6 +356,19 @@ pub const Hnsw = struct {
     /// Thread safety: acquires a shared read lock. Multiple concurrent
     /// `knnSearch` calls may proceed in parallel; they will block only
     /// while an `insert` is in progress.
+    ///
+    /// # Concurrency
+    ///
+    /// Safe to call from multiple threads concurrently — internal state
+    /// is protected by a shared lock, and the per-query `searchLayer`
+    /// fan-out uses the instance-owned thread pool.
+    ///
+    /// **For high-QPS workloads with a fixed set of query-worker
+    /// threads**, each worker should call `registerQueryThread()` once
+    /// on entry and `releaseQueryThread()` once on exit. This opts each
+    /// worker thread into the pool's per-submitter fast path, which
+    /// amortizes descriptor-allocation CAS traffic across repeated
+    /// searches on that thread. See `Hnsw.registerQueryThread`.
     pub fn knnSearch(self: *const Hnsw, query: []const f32, k: u32) ![]SearchResult {
         if (query.len != self.dim) return HnswError.DimensionMismatch;
         // Cast away const for RwLock (the lock protects structural mutation,
