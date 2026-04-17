@@ -156,6 +156,11 @@ pub const Hnsw = struct {
         // silently change semantics across thread-pool releases.
         pool.* = try tp.ThreadPool.init(allocator, .{
             .scheduler_variant = .work_stealing,
+            // Enable 16 submitter slots so query workers can each opt into the
+            // per-submitter fast path via Hnsw.registerQueryThread. 16 is enough
+            // for typical query-worker pools; the library caps at 64. Without
+            // this, registerSubmitter returns error.NoSubmitterSlots.
+            .max_submitter_queues = 16,
         });
         return .{
             .allocator = allocator,
@@ -189,6 +194,32 @@ pub const Hnsw = struct {
     /// Number of vectors currently in the index.
     pub fn count(self: *const Hnsw) u32 {
         return @intCast(self.nodes.items.len);
+    }
+
+    /// Opt the calling thread into the thread-pool's per-submitter fast
+    /// path for distance-computation fan-out. Hnsw's internal pool is
+    /// typically shared across many concurrent `knnSearch` callers;
+    /// registering each query-worker thread amortizes descriptor
+    /// allocation across all searches that worker runs.
+    ///
+    /// Call ONCE on each query-worker thread before it enters its query
+    /// loop; pair with exactly one `releaseQueryThread` on the same
+    /// thread before the worker exits.
+    ///
+    /// The pool has 16 submitter slots by default (see `Hnsw.init`).
+    /// Callers with more than 16 query workers should fall back to the
+    /// default path for the overflow (`error.NoSubmitterSlots` can be
+    /// ignored — default submit still works, just slower under
+    /// contention).
+    pub fn registerQueryThread(self: *Hnsw) !usize {
+        return self.pool.registerSubmitter();
+    }
+
+    /// Release a slot previously acquired via `registerQueryThread`.
+    /// Must be called on the same thread that registered the slot.
+    /// Out-of-range `idx` is silently ignored (F-005 guarantee).
+    pub fn releaseQueryThread(self: *Hnsw, idx: usize) void {
+        self.pool.releaseSubmitter(idx);
     }
 
     /// Insert a vector into the index with the given user-defined id.

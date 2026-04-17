@@ -291,3 +291,30 @@ test "integration: many insertions without memory leak" {
 
     try std.testing.expectEqual(@as(usize, 10), results.len);
 }
+
+test "integration: Hnsw.registerQueryThread lets each query worker hold a submitter slot" {
+    const allocator = std.testing.allocator;
+
+    var index = try lib.Hnsw.init(allocator, 4, .cosine, .{ .m = 4 });
+    defer index.deinit();
+
+    // Simulate a query worker opting in.
+    const slot = try index.registerQueryThread();
+    try std.testing.expect(slot < 64);
+
+    // A query on the registered thread must still succeed — the
+    // per-submitter fast path is transparent to callers.
+    const vec = [_]f32{ 1.0, 0.0, 0.0, 0.0 };
+    try index.insert(0, &vec);
+
+    const results = try index.knnSearch(&vec, 1);
+    defer allocator.free(results);
+    try std.testing.expect(results.len <= 1);
+
+    index.releaseQueryThread(slot);
+
+    // Another register+release cycle must succeed.
+    const slot2 = try index.registerQueryThread();
+    defer index.releaseQueryThread(slot2);
+    try std.testing.expect(slot2 < 64);
+}

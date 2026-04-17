@@ -181,6 +181,11 @@ pub fn load(allocator: Allocator, reader: *Reader) !Hnsw {
     // Match hnsw.zig: pin .work_stealing explicitly (see rationale there).
     pool.* = try tp.ThreadPool.init(allocator, .{
         .scheduler_variant = .work_stealing,
+        // Enable 16 submitter slots so query workers can each opt into the
+        // per-submitter fast path via Hnsw.registerQueryThread. 16 is enough
+        // for typical query-worker pools; the library caps at 64. Without
+        // this, registerSubmitter returns error.NoSubmitterSlots.
+        .max_submitter_queues = 16,
     });
     return Hnsw{
         .allocator = allocator,
