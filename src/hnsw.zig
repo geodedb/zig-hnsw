@@ -149,7 +149,14 @@ pub const Hnsw = struct {
         const m: f64 = @floatFromInt(config.m);
         const pool = try allocator.create(tp.ThreadPool);
         errdefer allocator.destroy(pool);
-        pool.* = try tp.ThreadPool.init(allocator, .{});
+        // Pin the scheduler variant explicitly. Distance-computation
+        // fan-out benefits from work-stealing because chunk workloads can
+        // diverge when vectors land in different cache lines; relying on
+        // the library's build-time default would mask that intent and
+        // silently change semantics across thread-pool releases.
+        pool.* = try tp.ThreadPool.init(allocator, .{
+            .scheduler_variant = .work_stealing,
+        });
         return .{
             .allocator = allocator,
             .dim = dim,

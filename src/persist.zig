@@ -178,7 +178,10 @@ pub fn load(allocator: Allocator, reader: *Reader) !Hnsw {
     const m_float: f64 = @floatFromInt(config.m);
     const pool = try allocator.create(tp.ThreadPool);
     errdefer allocator.destroy(pool);
-    pool.* = try tp.ThreadPool.init(allocator, .{});
+    // Match hnsw.zig: pin .work_stealing explicitly (see rationale there).
+    pool.* = try tp.ThreadPool.init(allocator, .{
+        .scheduler_variant = .work_stealing,
+    });
     return Hnsw{
         .allocator = allocator,
         .dim = dim,
