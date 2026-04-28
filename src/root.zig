@@ -40,6 +40,13 @@ pub const distance = @import("distance.zig");
 pub const hnsw = @import("hnsw.zig");
 pub const persist = @import("persist.zig");
 
+// otel observability seam. Surfaces `startVectorOpSpan` /
+// `endVectorOpSpan` plus the `enabled` flag. When `-Dwith_otel=false`
+// (the default), every helper collapses to a comptime no-op and the
+// otel dependency is never resolved. The public API is reachable as
+// `hnsw.observability`.
+pub const observability = @import("observability");
+
 // Top-level re-exports for convenience
 pub const DistanceMetric = distance.DistanceMetric;
 pub const Hnsw = hnsw.Hnsw;

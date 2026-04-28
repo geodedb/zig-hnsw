@@ -7,12 +7,67 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // -Dwith_otel: compile in otel instrumentation. OFF by default;
+    // when off the otel dependency is never resolved and the seam
+    // collapses to a comptime-known no-op (verified by
+    // otel/scripts/verify-consumer-noop.sh).
+    const with_otel = b.option(
+        bool,
+        "with_otel",
+        "Compile in otel instrumentation (off by default; zero overhead when off)",
+    ) orelse false;
+
     // Thread pool parallelism dependency
     const thread_pool_dep = b.dependency("thread_pool", .{
         .target = target,
         .optimize = optimize,
     });
     const thread_pool_module = thread_pool_dep.module("thread_pool");
+
+    // Materialize ONE shared `build_options` module. Each consumer
+    // module imports the SAME module instance via `addImport` to avoid
+    // Zig 0.16's "file exists in modules X and X0" error when two
+    // independent `addOptions` modules end up sharing a transitive
+    // file path.
+    const build_options = b.addOptions();
+    build_options.addOption(bool, "with_otel", with_otel);
+    const build_options_mod = build_options.createModule();
+
+    // Observability seam (otel). Declared as a SHARED NAMED MODULE so
+    // every consumer (lib, tests, example, plus the seam tests) resolves
+    // to the same source file via `@import("observability")`. Using a
+    // relative `@import("observability.zig")` from each module would
+    // trip Zig's "file exists in modules X and Y" error because the
+    // file would be pulled into multiple module trees. The seam's
+    // `enabled` flag tracks `build_options.with_otel`; when off, every
+    // helper compiles to a comptime-known no-op and the otel dependency
+    // is never resolved.
+    const observability_mod = b.addModule("observability", .{
+        .root_source_file = b.path("src/observability.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "build_options", .module = build_options_mod },
+        },
+    });
+
+    // Gated otel dependency. The `lazy = true` entry in build.zig.zon
+    // means Zig only fetches the package when this branch executes;
+    // with the flag off the dependency is never resolved and the
+    // produced artifacts contain zero otel symbols (verified by
+    // otel/scripts/verify-consumer-noop.sh).
+    var otel_mod: ?*std.Build.Module = null;
+    if (with_otel) {
+        if (b.lazyDependency("otel", .{
+            .target = target,
+            .optimize = optimize,
+        })) |otel_dep| {
+            const m = otel_dep.module("otel");
+            otel_mod = m;
+            // The seam itself imports `otel` when enabled.
+            observability_mod.addImport("otel", m);
+        }
+    }
 
     // Main library module
     const module = b.addModule("hnsw", .{
@@ -21,8 +76,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "thread_pool", .module = thread_pool_module },
+            .{ .name = "observability", .module = observability_mod },
+            .{ .name = "build_options", .module = build_options_mod },
         },
     });
+    if (otel_mod) |m| module.addImport("otel", m);
 
     // Unit tests (run tests defined in the module itself)
     const test_step = b.step("test", "Run unit tests");
@@ -33,11 +91,34 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "thread_pool", .module = thread_pool_module },
+                .{ .name = "observability", .module = observability_mod },
+                .{ .name = "build_options", .module = build_options_mod },
             },
         }),
     });
+    if (otel_mod) |m| unit_tests.root_module.addImport("otel", m);
     const run_unit_tests = b.addRunArtifact(unit_tests);
     test_step.dependOn(&run_unit_tests.step);
+
+    // Observability seam tests. The disabled-mode test is registered
+    // under BOTH flag values; each test inside it skip-guards via
+    // `if (hnsw.observability.enabled) return error.SkipZigTest;` so
+    // the disabled-mode invariants only fire when the flag is off.
+    // The enabled-mode smoke test is added in Chunk C alongside the
+    // init helper.
+    const obs_disabled_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/observability_disabled_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "hnsw", .module = module },
+                .{ .name = "build_options", .module = build_options_mod },
+            },
+        }),
+    });
+    const run_obs_disabled = b.addRunArtifact(obs_disabled_tests);
+    test_step.dependOn(&run_obs_disabled.step);
 
     // Integration tests (separate test file with module import)
     const integration_step = b.step("test-integration", "Run integration tests");
@@ -80,9 +161,12 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "thread_pool", .module = thread_pool_module },
+                .{ .name = "observability", .module = observability_mod },
+                .{ .name = "build_options", .module = build_options_mod },
             },
         }),
     });
+    if (otel_mod) |m| check.root_module.addImport("otel", m);
     check_step.dependOn(&check.step);
 
     // -----------------------------------------------------------------------
