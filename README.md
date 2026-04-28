@@ -142,6 +142,47 @@ make ci
 
 See the [docs](docs/) directory for detailed documentation.
 
+## Observability
+
+hnsw ships an opt-in OpenTelemetry seam. Build with
+`-Dwith_otel=true` to compile in instrumentation; the default
+(`-Dwith_otel=false`) leaves every span site as a comptime no-op so
+the optimizer eliminates the entry/exit calls and the `otel`
+dependency is never fetched.
+
+Each public vector-index operation emits exactly one outer span per
+call, named `hnsw.{operation}` with the OpenTelemetry `db.*`
+semantic-convention attributes:
+
+- `hnsw.insert` -- attrs `db.system="hnsw"`, `db.operation="insert"`,
+  `vector.dim`.
+- `hnsw.build` -- attrs `db.system`, `db.operation="build"`,
+  `vector.dim`, `hnsw.batch_size` (emitted by `Hnsw.batchInsert`).
+- `hnsw.search` -- attrs `db.system`, `db.operation="search"`,
+  `vector.dim`, `hnsw.k`, plus `hnsw.results` on success (the
+  returned slice length).
+
+Vector contents are NEVER published as span attributes; only
+dimensions, `k`, batch size, and result counts are. Inner graph
+traversal (`searchLayer`, `greedyClosest`, etc.) is intentionally
+not instrumented -- it would be far too noisy.
+
+```bash
+zig build test                   # default: -Dwith_otel=false (no-op)
+zig build test -Dwith_otel=true  # otel compiled in, spans emitted
+```
+
+When enabled, the consumer's process bootstrap calls
+`hnsw.observability_init.Otel.init(allocator, "service-name")` and
+parks the returned value at a stable address (a `var` in `main` or a
+heap allocation), then calls `installGlobals(&that_value)` so the
+seam can publish its tracer pointer. Span emission is non-fatal:
+every emit is `catch {}`-discarded so a failed exporter cannot
+propagate into vector operations.
+
+For the full integration recipe and template files, see
+`otel/docs/integration/RECIPE.md` in the otel repo.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
