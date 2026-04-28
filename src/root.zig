@@ -47,6 +47,16 @@ pub const persist = @import("persist.zig");
 // `hnsw.observability`.
 pub const observability = @import("observability");
 
+// Bootstrap helper for the enabled build. Only registered as a build
+// import when `-Dwith_otel=true`; under the disabled build the
+// reference resolves to a placeholder empty struct so the public root
+// stays uniform. Consumers reach it as
+// `hnsw.observability_init.Otel.init(...)`.
+pub const observability_init = if (observability.enabled)
+    @import("observability_init")
+else
+    struct {};
+
 // Top-level re-exports for convenience
 pub const DistanceMetric = distance.DistanceMetric;
 pub const Hnsw = hnsw.Hnsw;

@@ -57,6 +57,7 @@ pub fn build(b: *std.Build) void {
     // produced artifacts contain zero otel symbols (verified by
     // otel/scripts/verify-consumer-noop.sh).
     var otel_mod: ?*std.Build.Module = null;
+    var observability_init_mod: ?*std.Build.Module = null;
     if (with_otel) {
         if (b.lazyDependency("otel", .{
             .target = target,
@@ -66,6 +67,20 @@ pub fn build(b: *std.Build) void {
             otel_mod = m;
             // The seam itself imports `otel` when enabled.
             observability_mod.addImport("otel", m);
+
+            // Bootstrap helper. Only registered when `-Dwith_otel=true`
+            // so the disabled build never compiles otel-touching code.
+            // Surfaced from root.zig via
+            // `if (observability.enabled) @import("observability_init")`.
+            observability_init_mod = b.addModule("observability_init", .{
+                .root_source_file = b.path("src/observability_init.zig"),
+                .target = target,
+                .optimize = optimize,
+                .imports = &.{
+                    .{ .name = "otel", .module = m },
+                    .{ .name = "observability", .module = observability_mod },
+                },
+            });
         }
     }
 
@@ -81,6 +96,7 @@ pub fn build(b: *std.Build) void {
         },
     });
     if (otel_mod) |m| module.addImport("otel", m);
+    if (observability_init_mod) |m| module.addImport("observability_init", m);
 
     // Unit tests (run tests defined in the module itself)
     const test_step = b.step("test", "Run unit tests");
@@ -97,15 +113,22 @@ pub fn build(b: *std.Build) void {
         }),
     });
     if (otel_mod) |m| unit_tests.root_module.addImport("otel", m);
+    if (observability_init_mod) |m| unit_tests.root_module.addImport("observability_init", m);
     const run_unit_tests = b.addRunArtifact(unit_tests);
     test_step.dependOn(&run_unit_tests.step);
 
-    // Observability seam tests. The disabled-mode test is registered
-    // under BOTH flag values; each test inside it skip-guards via
-    // `if (hnsw.observability.enabled) return error.SkipZigTest;` so
-    // the disabled-mode invariants only fire when the flag is off.
-    // The enabled-mode smoke test is added in Chunk C alongside the
-    // init helper.
+    // Observability seam tests. Two targets:
+    //   - `observability_disabled_test.zig` runs under BOTH flag
+    //     values. Each test inside it is skip-guarded via
+    //     `if (hnsw.observability.enabled) return error.SkipZigTest;`
+    //     so the disabled-mode invariants only fire when the flag is
+    //     off.
+    //   - `observability_enabled_test.zig` is registered under both
+    //     flag values too, but every test inside it skips when the
+    //     flag is off. The `otel` import is wired only when
+    //     `with_otel = true`; the stub branch in the test file
+    //     (`const otel = if (build_options.with_otel) ...`) ensures
+    //     the file still compiles cleanly under the disabled build.
     const obs_disabled_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("tests/observability_disabled_test.zig"),
@@ -119,6 +142,21 @@ pub fn build(b: *std.Build) void {
     });
     const run_obs_disabled = b.addRunArtifact(obs_disabled_tests);
     test_step.dependOn(&run_obs_disabled.step);
+
+    const obs_enabled_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/observability_enabled_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "hnsw", .module = module },
+                .{ .name = "build_options", .module = build_options_mod },
+            },
+        }),
+    });
+    if (otel_mod) |m| obs_enabled_tests.root_module.addImport("otel", m);
+    const run_obs_enabled = b.addRunArtifact(obs_enabled_tests);
+    test_step.dependOn(&run_obs_enabled.step);
 
     // Integration tests (separate test file with module import)
     const integration_step = b.step("test-integration", "Run integration tests");
@@ -167,6 +205,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     if (otel_mod) |m| check.root_module.addImport("otel", m);
+    if (observability_init_mod) |m| check.root_module.addImport("observability_init", m);
     check_step.dependOn(&check.step);
 
     // -----------------------------------------------------------------------
