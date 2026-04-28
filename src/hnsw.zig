@@ -14,6 +14,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const dist = @import("distance.zig");
 const tp = @import("thread_pool");
+const observability = @import("observability");
 
 pub const DistanceMetric = dist.DistanceMetric;
 
@@ -234,10 +235,23 @@ pub const Hnsw = struct {
     /// Thread safety: acquires an exclusive write lock. Concurrent
     /// `knnSearch` calls will block until insertion completes.
     pub fn insert(self: *Hnsw, id: u64, vector: []const f32) !void {
+        // Span the OUTER call only — graph-traversal inner loops are
+        // too noisy for tracing. Vector contents are intentionally
+        // never published as span attributes (potentially large /
+        // sensitive); vector *dimension* is safe.
+        var __obs_span = observability.startVectorOpSpan("insert");
+        defer __obs_span.end(null);
+        errdefer observability.endVectorOpSpan(__obs_span, false, 0);
+        if (observability.enabled) {
+            __obs_span.setIntAttribute("vector.dim", @intCast(self.dim)) catch {};
+        }
+
         if (vector.len != self.dim) return HnswError.DimensionMismatch;
         self.rw_lock.lockUncancelable(std.Io.Threaded.global_single_threaded.io());
         defer self.rw_lock.unlock(std.Io.Threaded.global_single_threaded.io());
         try self.insertUnlocked(id, vector);
+
+        observability.endVectorOpSpan(__obs_span, true, 0);
     }
 
     /// Insert multiple vectors in a single batch.
@@ -249,12 +263,28 @@ pub const Hnsw = struct {
     /// `ids` and `vectors` must have the same length. Each element of
     /// `vectors` must have length `self.dim`.
     pub fn batchInsert(self: *Hnsw, ids: []const u64, vectors: []const []const f32) !void {
+        // The bulk-build entry point — emit a single `hnsw.build` span
+        // for the whole batch rather than one per inner insert. Inner
+        // `insertUnlocked` calls run under this span without their own
+        // emission, matching the recipe's "span the OUTER public call"
+        // rule. Vector contents are not attached; only dimension and
+        // batch size are.
+        var __obs_span = observability.startVectorOpSpan("build");
+        defer __obs_span.end(null);
+        errdefer observability.endVectorOpSpan(__obs_span, false, 0);
+        if (observability.enabled) {
+            __obs_span.setIntAttribute("vector.dim", @intCast(self.dim)) catch {};
+            __obs_span.setIntAttribute("hnsw.batch_size", @intCast(ids.len)) catch {};
+        }
+
         if (ids.len != vectors.len) return HnswError.DimensionMismatch;
         self.rw_lock.lockUncancelable(std.Io.Threaded.global_single_threaded.io());
         defer self.rw_lock.unlock(std.Io.Threaded.global_single_threaded.io());
         for (ids, vectors) |id, vec| {
             try self.insertUnlocked(id, vec);
         }
+
+        observability.endVectorOpSpan(__obs_span, true, 0);
     }
 
     /// Core insertion logic without locking. Caller must hold the write lock.
@@ -370,6 +400,21 @@ pub const Hnsw = struct {
     /// amortizes descriptor-allocation CAS traffic across repeated
     /// searches on that thread. See `Hnsw.registerQueryThread`.
     pub fn knnSearch(self: *const Hnsw, query: []const f32, k: u32) ![]SearchResult {
+        // OUTER-call span only — `searchLayer` and `greedyClosest` are
+        // inner traversal hot loops and must NOT be spanned (would be
+        // far too noisy). Vector contents are intentionally never
+        // published; query dimension and `k` are emitted as span
+        // attributes, and the returned slice length is reported via
+        // `endVectorOpSpan(_, true, n)` so the recorder receives
+        // `hnsw.results = n`.
+        var __obs_span = observability.startVectorOpSpan("search");
+        defer __obs_span.end(null);
+        errdefer observability.endVectorOpSpan(__obs_span, false, 0);
+        if (observability.enabled) {
+            __obs_span.setIntAttribute("vector.dim", @intCast(self.dim)) catch {};
+            __obs_span.setIntAttribute("hnsw.k", @intCast(k)) catch {};
+        }
+
         if (query.len != self.dim) return HnswError.DimensionMismatch;
         // Cast away const for RwLock (the lock protects structural mutation,
         // knnSearch only reads).
@@ -378,6 +423,7 @@ pub const Hnsw = struct {
         defer mutable_self.rw_lock.unlockShared(std.Io.Threaded.global_single_threaded.io());
 
         if (self.entry_point == null or k == 0) {
+            observability.endVectorOpSpan(__obs_span, true, 0);
             return &[_]SearchResult{};
         }
 
@@ -409,6 +455,7 @@ pub const Hnsw = struct {
                 .distance = c.dist,
             };
         }
+        observability.endVectorOpSpan(__obs_span, true, n);
         return results;
     }
 
