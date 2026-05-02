@@ -1,6 +1,6 @@
 .{
     .name = .hnsw,
-    .version = "0.1.1",
+    .version = "0.1.2",
     .fingerprint = 0x57ec2870cbc18cc1,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
