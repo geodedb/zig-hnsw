@@ -1,6 +1,6 @@
 .{
     .name = .hnsw,
-    .version = "0.1.2",
+    .version = "0.1.3",
     .fingerprint = 0x57ec2870cbc18cc1,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
@@ -13,8 +13,8 @@
         // build flag `-Dwith_otel` (default false) controls that branch in
         // build.zig, so a disabled build never resolves this dep.
         .otel = .{
-            .url = "git+https://gitlab.com/devnw/zig/otel.git#v0.1.3",
-            .hash = "otel-0.1.3-B0v3lrgLNAAV-o70i1bvVUuOsugHWnPtUB8SbLoGaBQ-",
+            .url = "git+https://gitlab.com/devnw/zig/otel.git#v0.1.5",
+            .hash = "otel-0.1.5-B0v3lrgLNACao6o8I6edI_sVKYHDsS69B6e9WJailgkS",
             .lazy = true,
         },
     },
