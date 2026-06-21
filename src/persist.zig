@@ -196,6 +196,7 @@ pub fn load(allocator: Allocator, reader: *Reader) !Hnsw {
         .entry_point = entry_point,
         .max_level = max_level,
         .prng_mutex = std.Io.Mutex.init,
+        // fips-exempt: non-security — restored HNSW layer-assignment PRNG (see hnsw.zig).
         .prng = std.Random.DefaultPrng.init(seed),
         .level_mult = 1.0 / @log(m_float),
         .rw_lock = std.Io.RwLock.init,

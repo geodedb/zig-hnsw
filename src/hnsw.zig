@@ -130,6 +130,9 @@ pub const Hnsw = struct {
     /// any forked work, but the mutex ensures safety for concurrent
     /// insert calls.
     prng_mutex: std.Io.Mutex,
+    // fips-exempt: non-security — HNSW layer assignment coin-flips (Malkov &
+    // Yashunin 2018 §4); index-structure randomness seeded for reproducibility,
+    // not a secret.
     prng: std.Random.DefaultPrng,
     /// Level multiplier: 1/ln(M), per Malkov & Yashunin (2018) Section 4.
     level_mult: f64,
@@ -172,6 +175,7 @@ pub const Hnsw = struct {
             .entry_point = null,
             .max_level = 0,
             .prng_mutex = std.Io.Mutex.init,
+            // fips-exempt: non-security — HNSW layer-assignment PRNG (see field above).
             .prng = std.Random.DefaultPrng.init(config.seed),
             .level_mult = 1.0 / @log(m),
             .rw_lock = std.Io.RwLock.init,
@@ -884,4 +888,9 @@ test "Hnsw randomLevel stays in bounds" {
         const level = index.randomLevel();
         try std.testing.expect(level < 4);
     }
+}
+
+test "fips-exempt annotation present on HNSW level PRNG site" {
+    const src = @embedFile("hnsw.zig");
+    try std.testing.expect(std.mem.indexOf(u8, src, "fips-exempt: non-security — HNSW layer assignment") != null);
 }
