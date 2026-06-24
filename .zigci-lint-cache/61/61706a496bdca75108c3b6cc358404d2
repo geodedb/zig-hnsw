@@ -1,0 +1,12 @@
+11:31:3:ZL003.no_empty_catch:empty catch block suppresses errors
+142:50:3:ZL003.no_empty_catch:empty catch block suppresses errors
+143:56:3:ZL003.no_empty_catch:empty catch block suppresses errors
+171:74:3:ZL003.no_empty_catch:empty catch block suppresses errors
+39:7:1:ZL201.type_pascalcase:type 'otel' should use PascalCase
+133:9:1:ZL009.var_should_be_const:variable 'name_buf' is never reassigned; consider using 'const'
+186:13:1:ZL009.var_should_be_const:variable 'tracer' is never reassigned; consider using 'const'
+187:13:1:ZL009.var_should_be_const:variable 'meter' is never reassigned; consider using 'const'
+37:1:1:ZL011.missing_doc_comment:public declaration 'enabled' is missing documentation
+46:5:1:ZL011.missing_doc_comment:public declaration 'end' is missing documentation
+80:1:1:ZL011.missing_doc_comment:public declaration 'endClientSpan' is missing documentation
+102:1:1:ZL011.missing_doc_comment:public declaration 'endServerSpan' is missing documentation

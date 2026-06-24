@@ -1,0 +1,6 @@
+55:49:3:ZL003.no_empty_catch:empty catch block suppresses errors
+56:43:3:ZL003.no_empty_catch:empty catch block suppresses errors
+37:9:1:ZL009.var_should_be_const:variable 'recorder' is never reassigned; consider using 'const'
+39:9:1:ZL009.var_should_be_const:variable 'tp' is never reassigned; consider using 'const'
+56:40:1:ZL010.magic_number:magic number 5; consider using a named constant
+58:52:1:ZL010.magic_number:magic number 10; consider using a named constant

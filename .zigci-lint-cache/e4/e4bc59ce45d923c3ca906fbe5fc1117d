@@ -1,0 +1,77 @@
+190:59:3:ZL003.no_empty_catch:empty catch block suppresses errors
+250:74:3:ZL003.no_empty_catch:empty catch block suppresses errors
+280:74:3:ZL003.no_empty_catch:empty catch block suppresses errors
+281:78:3:ZL003.no_empty_catch:empty catch block suppresses errors
+418:74:3:ZL003.no_empty_catch:empty catch block suppresses errors
+419:63:3:ZL003.no_empty_catch:empty catch block suppresses errors
+520:11:1:ZL203.const_snakecase:constant 'MAX_CHUNKS' should use snake_case (or PascalCase for types)
+353:101:2:ZL300.max_line_length:line exceeds 100 characters (135)
+450:101:2:ZL300.max_line_length:line exceeds 100 characters (103)
+502:101:2:ZL300.max_line_length:line exceeds 100 characters (107)
+702:101:2:ZL300.max_line_length:line exceeds 100 characters (102)
+895:101:2:ZL300.max_line_length:line exceeds 100 characters (116)
+295:5:2:ZL301.max_function_lines:function exceeds 80 lines (88)
+548:5:2:ZL301.max_function_lines:function exceeds 80 lines (135)
+548:5:2:ZL302.max_params:function has too many parameters (7 > 6)
+645:88:2:ZL303.max_nesting:nesting depth exceeds 4 (7)
+338:17:1:ZL009.var_should_be_const:variable 'lc' is never reassigned; consider using 'const'
+351:13:1:ZL009.var_should_be_const:variable 'lc' is never reassigned; consider using 'const'
+434:13:1:ZL009.var_should_be_const:variable 'arena' is never reassigned; consider using 'const'
+442:17:1:ZL009.var_should_be_const:variable 'lc' is never reassigned; consider using 'const'
+556:13:1:ZL009.var_should_be_const:variable 'visited' is never reassigned; consider using 'const'
+557:13:1:ZL009.var_should_be_const:variable 'candidates' is never reassigned; consider using 'const'
+576:13:1:ZL009.var_should_be_const:variable 'unvisited_buf' is never reassigned; consider using 'const'
+577:13:1:ZL009.var_should_be_const:variable 'dist_buf' is never reassigned; consider using 'const'
+591:17:1:ZL009.var_should_be_const:variable 'unvisited_count' is never reassigned; consider using 'const'
+613:21:1:ZL009.var_should_be_const:variable 'chunk_ctxs' is never reassigned; consider using 'const'
+614:21:1:ZL009.var_should_be_const:variable 'batch_tasks' is never reassigned; consider using 'const'
+615:21:1:ZL009.var_should_be_const:variable 'wg' is never reassigned; consider using 'const'
+676:13:1:ZL009.var_should_be_const:variable 'i' is never reassigned; consider using 'const'
+883:9:1:ZL009.var_should_be_const:variable 'index' is never reassigned; consider using 'const'
+43:28:1:ZL010.magic_number:magic number 200; consider using a named constant
+45:22:1:ZL010.magic_number:magic number 50; consider using a named constant
+49:17:1:ZL010.magic_number:magic number 42; consider using a named constant
+151:31:1:ZL010.magic_number:magic number 65536; consider using a named constant
+190:36:1:ZL010.magic_number:magic number 5; consider using a named constant
+726:54:1:ZL010.magic_number:magic number 3; consider using a named constant
+753:54:1:ZL010.magic_number:magic number 3; consider using a named constant
+760:54:1:ZL010.magic_number:magic number 3; consider using a named constant
+762:57:1:ZL010.magic_number:magic number 5; consider using a named constant
+767:54:1:ZL010.magic_number:magic number 3; consider using a named constant
+776:77:1:ZL010.magic_number:magic number 4; consider using a named constant
+789:42:1:ZL010.magic_number:magic number 5; consider using a named constant
+796:62:1:ZL010.magic_number:magic number 5; consider using a named constant
+801:77:1:ZL010.magic_number:magic number 4; consider using a named constant
+804:22:1:ZL010.magic_number:magic number 42; consider using a named constant
+805:22:1:ZL010.magic_number:magic number 43; consider using a named constant
+806:22:1:ZL010.magic_number:magic number 44; consider using a named constant
+812:42:1:ZL010.magic_number:magic number 42; consider using a named constant
+817:77:1:ZL010.magic_number:magic number 4; consider using a named constant
+823:22:1:ZL010.magic_number:magic number 3; consider using a named constant
+824:22:1:ZL010.magic_number:magic number 4; consider using a named constant
+826:62:1:ZL010.magic_number:magic number 4; consider using a named constant
+829:44:1:ZL010.magic_number:magic number 4; consider using a named constant
+831:42:1:ZL010.magic_number:magic number 4; consider using a named constant
+833:42:1:ZL010.magic_number:magic number 3; consider using a named constant
+838:77:1:ZL010.magic_number:magic number 4; consider using a named constant
+844:62:1:ZL010.magic_number:magic number 10; consider using a named constant
+856:33:1:ZL010.magic_number:magic number 32000; consider using a named constant
+857:42:1:ZL010.magic_number:magic number 64000; consider using a named constant
+861:77:1:ZL010.magic_number:magic number 4; consider using a named constant
+864:25:1:ZL010.magic_number:magic number 10; consider using a named constant
+864:29:1:ZL010.magic_number:magic number 20; consider using a named constant
+864:33:1:ZL010.magic_number:magic number 30; consider using a named constant
+864:37:1:ZL010.magic_number:magic number 40; consider using a named constant
+864:41:1:ZL010.magic_number:magic number 50; consider using a named constant
+873:42:1:ZL010.magic_number:magic number 5; consider using a named constant
+879:42:1:ZL010.magic_number:magic number 10; consider using a named constant
+883:86:1:ZL010.magic_number:magic number 4; consider using a named constant
+889:40:1:ZL010.magic_number:magic number 4; consider using a named constant
+19:1:1:ZL011.missing_doc_comment:public declaration 'DistanceMetric' is missing documentation
+27:1:1:ZL011.missing_doc_comment:public declaration 'HnswError' is missing documentation
+6:43:1:ZL501.hardcoded_path_separator:hardcoded path may not work across operating systems; consider using std.fs.path
+455:43:1:ZL603.missing_defer_cleanup:resource '.alloc(' may not be properly cleaned up; consider using defer
+576:37:1:ZL603.missing_defer_cleanup:resource '.alloc(' may not be properly cleaned up; consider using defer
+577:32:1:ZL603.missing_defer_cleanup:resource '.alloc(' may not be properly cleaned up; consider using defer
+675:32:1:ZL603.missing_defer_cleanup:resource '.alloc(' may not be properly cleaned up; consider using defer
+118:16:1:ZL605.large_struct_copy:struct 'Hnsw' has 65 fields; consider passing by pointer to avoid copies

@@ -1,0 +1,10 @@
+39:1:1:ZL011.missing_doc_comment:public declaration 'distance' is missing documentation
+40:1:1:ZL011.missing_doc_comment:public declaration 'hnsw' is missing documentation
+41:1:1:ZL011.missing_doc_comment:public declaration 'persist' is missing documentation
+48:1:1:ZL011.missing_doc_comment:public declaration 'observability' is missing documentation
+55:1:1:ZL011.missing_doc_comment:public declaration 'observability_init' is missing documentation
+61:1:1:ZL011.missing_doc_comment:public declaration 'DistanceMetric' is missing documentation
+62:1:1:ZL011.missing_doc_comment:public declaration 'Hnsw' is missing documentation
+63:1:1:ZL011.missing_doc_comment:public declaration 'HnswError' is missing documentation
+64:1:1:ZL011.missing_doc_comment:public declaration 'Config' is missing documentation
+65:1:1:ZL011.missing_doc_comment:public declaration 'SearchResult' is missing documentation

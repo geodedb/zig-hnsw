@@ -1,0 +1,58 @@
+311:40:2:ZL002.no_unreachable:use of 'unreachable' may hide bugs
+312:43:2:ZL002.no_unreachable:use of 'unreachable' may hide bugs
+313:39:2:ZL002.no_unreachable:use of 'unreachable' may hide bugs
+314:41:2:ZL002.no_unreachable:use of 'unreachable' may hide bugs
+315:37:2:ZL002.no_unreachable:use of 'unreachable' may hide bugs
+316:51:2:ZL002.no_unreachable:use of 'unreachable' may hide bugs
+317:45:2:ZL002.no_unreachable:use of 'unreachable' may hide bugs
+318:45:2:ZL002.no_unreachable:use of 'unreachable' may hide bugs
+319:40:2:ZL002.no_unreachable:use of 'unreachable' may hide bugs
+320:46:2:ZL002.no_unreachable:use of 'unreachable' may hide bugs
+321:47:2:ZL002.no_unreachable:use of 'unreachable' may hide bugs
+322:44:2:ZL002.no_unreachable:use of 'unreachable' may hide bugs
+311:34:2:ZL004.no_catch_unreachable:catch unreachable suppresses error handling
+312:37:2:ZL004.no_catch_unreachable:catch unreachable suppresses error handling
+313:33:2:ZL004.no_catch_unreachable:catch unreachable suppresses error handling
+314:35:2:ZL004.no_catch_unreachable:catch unreachable suppresses error handling
+315:31:2:ZL004.no_catch_unreachable:catch unreachable suppresses error handling
+316:45:2:ZL004.no_catch_unreachable:catch unreachable suppresses error handling
+317:39:2:ZL004.no_catch_unreachable:catch unreachable suppresses error handling
+318:39:2:ZL004.no_catch_unreachable:catch unreachable suppresses error handling
+319:34:2:ZL004.no_catch_unreachable:catch unreachable suppresses error handling
+320:40:2:ZL004.no_catch_unreachable:catch unreachable suppresses error handling
+321:41:2:ZL004.no_catch_unreachable:catch unreachable suppresses error handling
+322:38:2:ZL004.no_catch_unreachable:catch unreachable suppresses error handling
+50:7:1:ZL203.const_snakecase:constant 'FORMAT_VERSION' should use snake_case (or PascalCase for types)
+53:7:1:ZL203.const_snakecase:constant 'MAX_DIM' should use snake_case (or PascalCase for types)
+55:7:1:ZL203.const_snakecase:constant 'MAX_NODE_COUNT' should use snake_case (or PascalCase for types)
+127:101:2:ZL300.max_line_length:line exceeds 100 characters (107)
+212:101:2:ZL300.max_line_length:line exceeds 100 characters (101)
+231:101:2:ZL300.max_line_length:line exceeds 100 characters (118)
+115:5:2:ZL301.max_function_lines:function exceeds 80 lines (91)
+296:1:2:ZL302.max_params:function has too many parameters (14 > 6)
+334:9:1:ZL009.var_should_be_const:variable 'buf' is never reassigned; consider using 'const'
+350:9:1:ZL009.var_should_be_const:variable 'index' is never reassigned; consider using 'const'
+357:9:1:ZL009.var_should_be_const:variable 'buf' is never reassigned; consider using 'const'
+358:9:1:ZL009.var_should_be_const:variable 'w' is never reassigned; consider using 'const'
+363:9:1:ZL009.var_should_be_const:variable 'loaded' is never reassigned; consider using 'const'
+387:9:1:ZL009.var_should_be_const:variable 'buf' is never reassigned; consider using 'const'
+395:9:1:ZL009.var_should_be_const:variable 'buf' is never reassigned; consider using 'const'
+402:9:1:ZL009.var_should_be_const:variable 'buf' is never reassigned; consider using 'const'
+409:9:1:ZL009.var_should_be_const:variable 'buf' is never reassigned; consider using 'const'
+416:9:1:ZL009.var_should_be_const:variable 'buf' is never reassigned; consider using 'const'
+423:9:1:ZL009.var_should_be_const:variable 'buf' is never reassigned; consider using 'const'
+426:9:1:ZL009.var_should_be_const:variable 'r' is never reassigned; consider using 'const'
+301:14:1:ZL010.magic_number:magic number 4; consider using a named constant
+303:22:1:ZL010.magic_number:magic number 50; consider using a named constant
+305:17:1:ZL010.magic_number:magic number 42; consider using a named constant
+331:54:1:ZL010.magic_number:magic number 3; consider using a named constant
+350:77:1:ZL010.magic_number:magic number 4; consider using a named constant
+353:22:1:ZL010.magic_number:magic number 10; consider using a named constant
+354:22:1:ZL010.magic_number:magic number 20; consider using a named constant
+355:22:1:ZL010.magic_number:magic number 30; consider using a named constant
+376:42:1:ZL010.magic_number:magic number 10; consider using a named constant
+388:53:1:ZL010.magic_number:magic number 99; consider using a named constant
+403:44:1:ZL010.magic_number:magic number 255; consider using a named constant
+425:66:1:ZL010.magic_number:magic number 5; consider using a named constant
+57:1:1:ZL011.missing_doc_comment:public declaration 'PersistError' is missing documentation
+357:15:2:ZL600.large_stack_alloc:large array size 65536 may cause stack overflow; consider heap allocation
