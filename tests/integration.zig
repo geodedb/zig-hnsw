@@ -14,7 +14,7 @@ const lib = @import("hnsw");
 // ============================================================================
 
 test "integration: version is defined" {
-    try std.testing.expectEqualStrings("0.1.15", lib.version);
+    try std.testing.expectEqualStrings("0.1.16", lib.version);
 }
 
 test "integration: create index, insert, and search" {
