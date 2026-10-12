@@ -33,7 +33,7 @@
 const std = @import("std");
 
 /// Library version.
-pub const version = "0.1.16";
+pub const version = "0.1.17";
 
 // Core modules
 pub const distance = @import("distance.zig");
